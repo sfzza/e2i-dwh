@@ -1,0 +1,29 @@
+name: Frontend CI
+
+on:
+  push:
+    paths:
+      - "e2i/frontend/**"
+      - ".github/workflows/frontend-ci.yml"
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: |
+          cd e2i/frontend
+          npm install
+
+      - name: Build
+        run: |
+          cd e2i/frontend
+          npm run build

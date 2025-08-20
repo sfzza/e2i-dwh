@@ -1,0 +1,57 @@
+name: Backend CI
+
+on:
+  push:
+    paths:
+      - "e2i/backend/**"
+      - ".github/workflows/backend-ci.yml"
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: e2i
+          POSTGRES_USER: e2i_user
+          POSTGRES_PASSWORD: e2i_pass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U e2i_user -d e2i"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: e2i
+      POSTGRES_USER: e2i_user
+      POSTGRES_PASSWORD: e2i_pass
+      DJANGO_SECRET_KEY: ci-secret
+      DJANGO_DEBUG: False
+      DJANGO_ALLOWED_HOSTS: "*"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r e2i/backend/requirements/dev.txt
+
+      - name: Run migrations
+        run: |
+          python e2i/backend/manage.py migrate --noinput
+
+      - name: Run tests
+        run: |
+          pytest e2i/backend

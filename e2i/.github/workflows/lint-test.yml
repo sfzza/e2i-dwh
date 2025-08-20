@@ -1,0 +1,20 @@
+name: Lint and Test
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install black isort flake8
+      - run: black --check e2i/backend
+      - run: isort --check-only e2i/backend
+      - run: flake8 e2i/backend
