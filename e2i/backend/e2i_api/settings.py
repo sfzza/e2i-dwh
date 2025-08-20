@@ -73,11 +73,16 @@ WSGI_APPLICATION = "e2i_api.wsgi.application"
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'e2i',
+        'USER': 'e2i_user',
+        'PASSWORD': 'e2i_pass',
+        'HOST': 'localhost',   # because Django runs locally, talks to Docker Postgres via localhost:5432
+        'PORT': '5432',
     }
 }
+
 
 
 # Password validation
