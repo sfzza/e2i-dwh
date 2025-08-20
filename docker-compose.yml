@@ -1,18 +1,15 @@
-
-version: '3.9'
 services:
   db:
     image: postgres:16
     container_name: e2i_postgres
     environment:
-      POSTGRES_DB: e2i
+      POSTGRES_DB: e2i_db
       POSTGRES_USER: e2i_user
-      POSTGRES_PASSWORD: e2i_pass
+      POSTGRES_PASSWORD: e2i_password
     ports:
-      - '5432:5432'
+      - '5433:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
 
 volumes:
   pgdata:
-

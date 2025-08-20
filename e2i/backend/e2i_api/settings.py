@@ -75,11 +75,11 @@ WSGI_APPLICATION = "e2i_api.wsgi.application"
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'e2i',
+        'NAME': 'e2i_db',
         'USER': 'e2i_user',
-        'PASSWORD': 'e2i_pass',
+        'PASSWORD': 'e2i_password',
         'HOST': 'localhost',   # because Django runs locally, talks to Docker Postgres via localhost:5432
-        'PORT': '5432',
+        'PORT': '5433',
     }
 }
 
