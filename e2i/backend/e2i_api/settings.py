@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "orchestration",
 ]
 
 MIDDLEWARE = [
@@ -75,11 +76,11 @@ WSGI_APPLICATION = "e2i_api.wsgi.application"
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'e2i_db',
-        'USER': 'e2i_user',
-        'PASSWORD': 'e2i_password',
+        'NAME': 'airflow',
+        'USER': 'airflow',
+        'PASSWORD': 'airflow',
         'HOST': 'localhost',   # because Django runs locally, talks to Docker Postgres via localhost:5432
-        'PORT': '5433',
+        'PORT': '5432',
     }
 }
 

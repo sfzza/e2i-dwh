@@ -1,15 +1,61 @@
 services:
-  db:
+  postgres:
     image: postgres:16
-    container_name: e2i_postgres
+    container_name: airflow_postgres
     environment:
-      POSTGRES_DB: e2i_db
-      POSTGRES_USER: e2i_user
-      POSTGRES_PASSWORD: e2i_password
-    ports:
-      - '5433:5432'
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ./pgdata:/var/lib/postgresql/data
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  airflow-webserver:
+    image: apache/airflow:2.8.1
+    container_name: airflow_webserver
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./e2i/orchestrator/dags:/opt/airflow/dags
+      - ./e2i/orchestrator/logs:/opt/airflow/logs
+      - ./e2i/orchestrator/plugins:/opt/airflow/plugins
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__DAGS_FOLDER=/opt/airflow/dags
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
+    depends_on:
+      - postgres
+    command: webserver
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://localhost:8080/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  airflow-scheduler:
+    image: apache/airflow:2.8.1
+    container_name: airflow_scheduler
+    volumes:
+      - ./e2i/orchestrator/dags:/opt/airflow/dags
+      - ./e2i/orchestrator/logs:/opt/airflow/logs
+      - ./e2i/orchestrator/plugins:/opt/airflow/plugins
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__DAGS_FOLDER=/opt/airflow/dags
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
+    depends_on:
+      - postgres
+    command: scheduler
 
 volumes:
   pgdata:

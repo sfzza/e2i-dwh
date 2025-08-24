@@ -1,0 +1,18 @@
+[2025-08-22T09:15:00.468+0000] {taskinstance.py:1956} INFO - Dependencies all met for dep_context=non-requeueable deps ti=<TaskInstance: poc_pipeline.end_task manual__2025-08-22T09:14:58.731514+00:00 [queued]>
+[2025-08-22T09:15:00.475+0000] {taskinstance.py:1956} INFO - Dependencies all met for dep_context=requeueable deps ti=<TaskInstance: poc_pipeline.end_task manual__2025-08-22T09:14:58.731514+00:00 [queued]>
+[2025-08-22T09:15:00.475+0000] {taskinstance.py:2170} INFO - Starting attempt 1 of 1
+[2025-08-22T09:15:00.483+0000] {taskinstance.py:2191} INFO - Executing <Task(BashOperator): end_task> on 2025-08-22 09:14:58.731514+00:00
+[2025-08-22T09:15:00.488+0000] {standard_task_runner.py:60} INFO - Started process 196 to run task
+[2025-08-22T09:15:00.494+0000] {standard_task_runner.py:87} INFO - Running: ['***', 'tasks', 'run', 'poc_pipeline', 'end_task', 'manual__2025-08-22T09:14:58.731514+00:00', '--job-id', '9', '--raw', '--subdir', 'DAGS_FOLDER/poc_pipeline.py', '--cfg-path', '/tmp/tmpg6382pb8']
+[2025-08-22T09:15:00.499+0000] {standard_task_runner.py:88} INFO - Job 9: Subtask end_task
+[2025-08-22T09:15:00.524+0000] {logging_mixin.py:188} WARNING - /home/***/.local/lib/python3.8/site-packages/***/settings.py:194 DeprecationWarning: The sql_alchemy_conn option in [core] has been moved to the sql_alchemy_conn option in [database] - the old setting has been used, but please update your config.
+[2025-08-22T09:15:00.586+0000] {task_command.py:423} INFO - Running <TaskInstance: poc_pipeline.end_task manual__2025-08-22T09:14:58.731514+00:00 [running]> on host f10c83f453ab
+[2025-08-22T09:15:00.663+0000] {taskinstance.py:2480} INFO - Exporting env vars: AIRFLOW_CTX_DAG_OWNER='***' AIRFLOW_CTX_DAG_ID='poc_pipeline' AIRFLOW_CTX_TASK_ID='end_task' AIRFLOW_CTX_EXECUTION_DATE='2025-08-22T09:14:58.731514+00:00' AIRFLOW_CTX_TRY_NUMBER='1' AIRFLOW_CTX_DAG_RUN_ID='manual__2025-08-22T09:14:58.731514+00:00'
+[2025-08-22T09:15:00.665+0000] {subprocess.py:63} INFO - Tmp dir root location: /tmp
+[2025-08-22T09:15:00.668+0000] {subprocess.py:75} INFO - Running command: ['/usr/bin/bash', '-c', "echo 'The PoC pipeline has finished successfully!'"]
+[2025-08-22T09:15:00.680+0000] {subprocess.py:86} INFO - Output:
+[2025-08-22T09:15:00.681+0000] {subprocess.py:93} INFO - The PoC pipeline has finished successfully!
+[2025-08-22T09:15:00.681+0000] {subprocess.py:97} INFO - Command exited with return code 0
+[2025-08-22T09:15:00.721+0000] {taskinstance.py:1138} INFO - Marking task as SUCCESS. dag_id=poc_pipeline, task_id=end_task, execution_date=20250822T091458, start_date=20250822T091500, end_date=20250822T091500
+[2025-08-22T09:15:00.758+0000] {local_task_job_runner.py:234} INFO - Task exited with return code 0
+[2025-08-22T09:15:00.778+0000] {taskinstance.py:3280} INFO - 0 downstream tasks scheduled from follow-on schedule check
