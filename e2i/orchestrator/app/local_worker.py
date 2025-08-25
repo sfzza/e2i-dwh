@@ -3,12 +3,11 @@ import threading, time
 from datetime import datetime, timezone
 from .models import PipelineRun, RunTask, RunStatus
 from .db import SessionLocal
-from .pipelines import get_pipeline_tasks  # import dynamic pipeline definitions
+from .pipelines import get_pipeline_tasks 
 
 
 class LocalWorker:
     def __init__(self, run: PipelineRun):
-        # only keep reference to run, not db
         self.run = run
 
     def start(self):
@@ -20,31 +19,29 @@ class LocalWorker:
         try:
             run = db.query(PipelineRun).get(self.run.id)
 
-            # get dynamic task list for this pipelineKey
-            task_names = get_pipeline_tasks(run.pipeline.key)
+            # Safely resolve the pipeline key (via relationship or fallback to ID)
+            pipeline_key = run.pipeline.key if run.pipeline else str(run.pipeline_id)
+
+            task_names = get_pipeline_tasks(pipeline_key)
 
             if not task_names:
-                raise ValueError(f"No tasks defined for pipeline {run.pipeline_key}")
+                raise ValueError(f"No tasks defined for pipeline {pipeline_key}")
 
-            # create RunTask rows dynamically
             tasks = [
                 RunTask(run_id=run.id, name=name, status=RunStatus.PENDING)
                 for name in task_names
             ]
-            for task in tasks:
-                db.add(task)
+            db.add_all(tasks)
 
             run.status = RunStatus.RUNNING
             db.commit()
             db.refresh(run)
 
-            # simulate task execution
             for t in run.tasks:
                 t.status = RunStatus.RUNNING
                 t.started_at = datetime.now(timezone.utc)
                 db.commit()
 
-                # here you could call real business logic, passing run.params
                 print(f"Running {t.name} with params: {run.params}")
                 time.sleep(1.0)
 
@@ -64,3 +61,4 @@ class LocalWorker:
             raise
         finally:
             db.close()
+

@@ -4,8 +4,10 @@ from .models import Pipeline
 
 SEEDS = [
     {"key": "tokenize_load", "name": "Tokenize & Load"},
+    {"key": "e2i_tokenize_load", "name": "Tokenize & Load (alias)"},
     {"key": "archive", "name": "Archive to cold storage"},
 ]
+
 
 def seed_pipelines(db: Session):
     for s in SEEDS:

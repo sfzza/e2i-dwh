@@ -31,16 +31,32 @@ def _run_dto(r: PipelineRun) -> RunDTO:
         retryCount=r.retry_count, failureReason=r.failure_reason,
     )
 
+# app/routes.py
+
 @router.post("/pipelines/run", response_model=RunResponse)
 def run_pipeline(payload: RunRequest, request: Request, db: Session = Depends(get_session)):
+    # Original check for missing keys - no change here
     if not payload.pipelineId and not payload.pipelineKey:
         raise HTTPException(status_code=400, detail="Provide pipelineId or pipelineKey")
 
-    q = db.query(Pipeline).filter_by(is_active=True)
-    pipeline = (q.filter_by(id=payload.pipelineId).first() if payload.pipelineId
-                else q.filter_by(key=payload.pipelineKey).first())
+    # ----- START of the updated logic -----
+    # Get the key from the payload
+    # Note: If you want to use 'req.key' as in your instructions,
+    # you'll also need to update your RunRequest schema.
+    # For now, we will use the existing `pipelineKey` from your schema.
+    pipeline_key = payload.pipelineKey
+    
+    # Try exact match first
+    pipeline = db.query(Pipeline).filter_by(key=pipeline_key, is_active=True).first()
+    
+    # Fallback: if not found and key starts with 'e2i_', try stripping the prefix
+    if not pipeline and pipeline_key and pipeline_key.startswith("e2i_"):
+        alt_key = pipeline_key[len("e2i_"):]
+        pipeline = db.query(Pipeline).filter_by(key=alt_key, is_active=True).first()
+
     if not pipeline:
         raise HTTPException(status_code=404, detail="Pipeline not found or inactive")
+    # ----- END of the updated logic -----
 
     idem = payload.idempotencyKey or request.headers.get("Idempotency-Key")
     if idem:
