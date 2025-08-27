@@ -25,38 +25,33 @@ def _task_dto(t: RunTask) -> TaskDTO:
 
 def _run_dto(r: PipelineRun) -> RunDTO:
     return RunDTO(
-        runId=r.run_id, pipelineKey=r.pipeline.key, status=r.status.value,
-        createdAt=r.created_at, updatedAt=r.updated_at, params=r.params or {},
-        externalRef=r.external_ref, tasks=[_task_dto(t) for t in r.tasks],
-        retryCount=r.retry_count, failureReason=r.failure_reason,
+        runId=r.run_id,
+        pipelineKey=r.pipeline.key if r.pipeline else r.pipeline_key,
+        status=r.status.value,
+        createdAt=r.created_at,
+        updatedAt=r.updated_at,
+        params=r.params or {},
+        externalRef=r.external_ref,
+        tasks=[_task_dto(t) for t in r.tasks] if r.tasks else [],
+        retryCount=r.retry_count,
+        failureReason=r.failure_reason,
     )
-
-# app/routes.py
 
 @router.post("/pipelines/run", response_model=RunResponse)
 def run_pipeline(payload: RunRequest, request: Request, db: Session = Depends(get_session)):
-    # Original check for missing keys - no change here
     if not payload.pipelineId and not payload.pipelineKey:
         raise HTTPException(status_code=400, detail="Provide pipelineId or pipelineKey")
 
-    # ----- START of the updated logic -----
-    # Get the key from the payload
-    # Note: If you want to use 'req.key' as in your instructions,
-    # you'll also need to update your RunRequest schema.
-    # For now, we will use the existing `pipelineKey` from your schema.
     pipeline_key = payload.pipelineKey
     
-    # Try exact match first
     pipeline = db.query(Pipeline).filter_by(key=pipeline_key, is_active=True).first()
     
-    # Fallback: if not found and key starts with 'e2i_', try stripping the prefix
     if not pipeline and pipeline_key and pipeline_key.startswith("e2i_"):
         alt_key = pipeline_key[len("e2i_"):]
         pipeline = db.query(Pipeline).filter_by(key=alt_key, is_active=True).first()
 
     if not pipeline:
         raise HTTPException(status_code=404, detail="Pipeline not found or inactive")
-    # ----- END of the updated logic -----
 
     idem = payload.idempotencyKey or request.headers.get("Idempotency-Key")
     if idem:
@@ -93,7 +88,6 @@ def run_pipeline(payload: RunRequest, request: Request, db: Session = Depends(ge
         db.refresh(run)
 
     if USE_LOCAL_WORKER:
-        # Correctly pass the new `run` object to the LocalWorker
         LocalWorker(run).start()
     else:
         adapter = AirflowAdapter()
@@ -153,7 +147,6 @@ def rerun(runId: str, db: Session = Depends(get_session)):
     db.refresh(new_run)
     
     if USE_LOCAL_WORKER:
-        # Correctly pass the new `run` object to the LocalWorker
         LocalWorker(new_run).start()
     else:
         adapter = AirflowAdapter()

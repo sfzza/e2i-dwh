@@ -21,34 +21,46 @@ class LocalWorker:
 
             # Safely resolve the pipeline key (via relationship or fallback to ID)
             pipeline_key = run.pipeline.key if run.pipeline else str(run.pipeline_id)
-
             task_names = get_pipeline_tasks(pipeline_key)
 
             if not task_names:
                 raise ValueError(f"No tasks defined for pipeline {pipeline_key}")
 
-            tasks = [
-                RunTask(run_id=run.id, name=name, status=RunStatus.PENDING)
-                for name in task_names
-            ]
-            db.add_all(tasks)
+            # create tasks if not already created
+            if not run.tasks:
+                tasks = [
+                    RunTask(run_id=run.id, name=name, status=RunStatus.PENDING)
+                    for name in task_names
+                ]
+                db.add_all(tasks)
+                db.commit()
+                db.refresh(run)
 
             run.status = RunStatus.RUNNING
             db.commit()
-            db.refresh(run)
 
+            # run tasks sequentially
             for t in run.tasks:
                 t.status = RunStatus.RUNNING
                 t.started_at = datetime.now(timezone.utc)
                 db.commit()
 
                 print(f"Running {t.name} with params: {run.params}")
-                time.sleep(1.0)
+                time.sleep(1.0)  # simulate work
+
+                if run.params and run.params.get("forceFail"):
+                    t.status = RunStatus.FAILED
+                    t.finished_at = datetime.now(timezone.utc)
+                    run.status = RunStatus.FAILED
+                    run.failure_reason = f"Task {t.name} failed due to forceFail flag"
+                    db.commit()
+                    return
 
                 t.status = RunStatus.SUCCESS
                 t.finished_at = datetime.now(timezone.utc)
                 db.commit()
 
+            # if all succeed
             run.status = RunStatus.SUCCESS
             db.commit()
 
@@ -61,4 +73,3 @@ class LocalWorker:
             raise
         finally:
             db.close()
-
