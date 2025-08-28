@@ -61,8 +61,8 @@ class RunTask(Base):
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[RunStatus] = mapped_column(SAEnum(RunStatus, name="runstatus_task"),
                                               default=RunStatus.PENDING, nullable=False)
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     details: Mapped[dict | None] = mapped_column(JSON, default=None)
     logs_url: Mapped[str | None] = mapped_column(Text)
     run = relationship("PipelineRun", back_populates="tasks")
