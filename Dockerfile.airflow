@@ -1,0 +1,7 @@
+FROM apache/airflow:2.8.1
+
+# Switch to airflow user (default non-root user inside Airflow image)
+USER airflow
+
+# Install MinIO SDK into the Airflow environment
+RUN pip install --no-cache-dir minio clickhouse-driver

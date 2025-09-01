@@ -1,24 +1,25 @@
 """
 URL configuration for e2i_api project.
-
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/5.2/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path
+
+# ✅ import views from ingestion app
+from e2i_api.apps.ingestion.views import (
+    upload_view,
+    presign_view,
+    complete_view,
+    upload_status_view,
+)
 
 urlpatterns = [
+    # Django Admin
     path("admin/", admin.site.urls),
-    path("pipelines/", include("orchestration.urls")),
+
+    # Ingestion Endpoints
+    path("ingest/upload", upload_view, name="upload"),
+    path("ingest/presign", presign_view, name="presign"),
+    path("ingest/complete", complete_view, name="complete"),
+    path("ingest/uploads/<uuid:upload_id>/status", upload_status_view, name="upload-status"),
 ]

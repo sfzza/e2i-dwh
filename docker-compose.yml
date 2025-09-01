@@ -1,22 +1,27 @@
 services:
-  postgres:
+  # Airflow's own Postgres (metadata DB)
+  airflow_postgres:
     image: postgres:16
     container_name: airflow_postgres
     environment:
-      - POSTGRES_USER=airflow
-      - POSTGRES_PASSWORD=airflow
-      - POSTGRES_DB=airflow
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
     volumes:
-      - ./pgdata:/var/lib/postgresql/data
+      - airflow_pgdata:/var/lib/postgresql/data
     ports:
-      - '5432:5432'
+      - "5432:5432"   # Airflow Postgres exposed on host port 5432
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -d $$POSTGRES_DB -U $$POSTGRES_USER"]
       interval: 5s
       timeout: 5s
       retries: 5
 
+  # Airflow webserver
   airflow-webserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
     image: apache/airflow:2.8.1
     container_name: airflow_webserver
     ports:
@@ -26,21 +31,24 @@ services:
       - ./e2i/orchestrator/logs:/opt/airflow/logs
       - ./e2i/orchestrator/plugins:/opt/airflow/plugins
     environment:
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      - AIRFLOW__CORE__DAGS_FOLDER=/opt/airflow/dags
-      - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
-      - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow_postgres/airflow
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
+      # --- ADDED: ClickHouse credentials for the DAG ---
+      CLICKHOUSE_USER: user
+      CLICKHOUSE_PASSWORD: password
     depends_on:
-      - postgres
+      airflow_postgres:
+        condition: service_healthy
     command: webserver
-    healthcheck:
-      test: ["CMD-SHELL", "curl --fail http://localhost:8080/health"]
-      interval: 10s
-      timeout: 10s
-      retries: 5
 
+  # Airflow scheduler
   airflow-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
     image: apache/airflow:2.8.1
     container_name: airflow_scheduler
     volumes:
@@ -48,14 +56,97 @@ services:
       - ./e2i/orchestrator/logs:/opt/airflow/logs
       - ./e2i/orchestrator/plugins:/opt/airflow/plugins
     environment:
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      - AIRFLOW__CORE__DAGS_FOLDER=/opt/airflow/dags
-      - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
-      - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow_postgres/airflow
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
+      # --- ADDED: ClickHouse credentials for the DAG ---
+      CLICKHOUSE_USER: user
+      CLICKHOUSE_PASSWORD: password
     depends_on:
-      - postgres
+      airflow_postgres:
+        condition: service_healthy
     command: scheduler
 
+  # Orchestrator's own Postgres
+  orchestrator_postgres:
+    image: postgres:15
+    container_name: orchestrator_postgres
+    environment:
+      POSTGRES_USER: e2i_user
+      POSTGRES_PASSWORD: e2i_pass
+      POSTGRES_DB: e2i_db
+    ports:
+      - "5433:5432"   # host:container (use localhost:5433 to connect)
+    volumes:
+      - e2i_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U e2i_user -d e2i_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Orchestrator app (FastAPI)
+  orchestrator:
+    build:
+      context: ./e2i/orchestrator
+      dockerfile: Dockerfile
+    container_name: e2i_orchestrator
+    env_file: ./e2i/orchestrator/.env
+    volumes: 
+      - ./e2i/orchestrator:/app 
+    environment:
+      - USE_LOCAL_WORKER=false  
+      - AIRFLOW__BASE_URL=http://airflow-webserver:8080  
+      - AIRFLOW__USERNAME=airflow
+      - AIRFLOW__PASSWORD=airflow
+    depends_on:
+      orchestrator_postgres:
+        condition: service_healthy
+    ports:
+      - "8002:8002"
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--reload"]
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"  # API Port
+      - "9001:9001"  # Console/UI Port
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse
+    environment:
+      # --- ADDED: Set credentials for the ClickHouse server ---
+      - CLICKHOUSE_USER=user
+      - CLICKHOUSE_PASSWORD=password
+    ports:
+      - "8123:8123" # HTTP Port
+      - "9003:9000" # Native Client Port (host port changed to avoid conflict)
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse/
+      - ./init-clickhouse.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
-  pgdata:
+  airflow_pgdata:
+  e2i_pg:
+  minio_data:
+  clickhouse_data:

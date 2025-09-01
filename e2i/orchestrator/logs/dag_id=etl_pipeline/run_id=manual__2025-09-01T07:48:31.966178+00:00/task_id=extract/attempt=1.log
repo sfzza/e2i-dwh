@@ -1,0 +1,33 @@
+[2025-09-01T07:48:33.633+0000] {taskinstance.py:1956} INFO - Dependencies all met for dep_context=non-requeueable deps ti=<TaskInstance: etl_pipeline.extract manual__2025-09-01T07:48:31.966178+00:00 [queued]>
+[2025-09-01T07:48:33.642+0000] {taskinstance.py:1956} INFO - Dependencies all met for dep_context=requeueable deps ti=<TaskInstance: etl_pipeline.extract manual__2025-09-01T07:48:31.966178+00:00 [queued]>
+[2025-09-01T07:48:33.643+0000] {taskinstance.py:2170} INFO - Starting attempt 1 of 1
+[2025-09-01T07:48:33.653+0000] {taskinstance.py:2191} INFO - Executing <Task(PythonOperator): extract> on 2025-09-01 07:48:31.966178+00:00
+[2025-09-01T07:48:33.666+0000] {standard_task_runner.py:60} INFO - Started process 187 to run task
+[2025-09-01T07:48:33.673+0000] {standard_task_runner.py:87} INFO - Running: ['***', 'tasks', 'run', 'etl_pipeline', 'extract', 'manual__2025-09-01T07:48:31.966178+00:00', '--job-id', '37', '--raw', '--subdir', 'DAGS_FOLDER/etl_pipeline.py', '--cfg-path', '/tmp/tmp6r6fps5p']
+[2025-09-01T07:48:33.679+0000] {standard_task_runner.py:88} INFO - Job 37: Subtask extract
+[2025-09-01T07:48:33.718+0000] {logging_mixin.py:188} WARNING - /home/***/.local/lib/python3.8/site-packages/***/settings.py:194 DeprecationWarning: The sql_alchemy_conn option in [core] has been moved to the sql_alchemy_conn option in [database] - the old setting has been used, but please update your config.
+[2025-09-01T07:48:33.760+0000] {task_command.py:423} INFO - Running <TaskInstance: etl_pipeline.extract manual__2025-09-01T07:48:31.966178+00:00 [running]> on host 0e8e106b5af3
+[2025-09-01T07:48:33.830+0000] {taskinstance.py:2480} INFO - Exporting env vars: AIRFLOW_CTX_DAG_OWNER='***' AIRFLOW_CTX_DAG_ID='etl_pipeline' AIRFLOW_CTX_TASK_ID='extract' AIRFLOW_CTX_EXECUTION_DATE='2025-09-01T07:48:31.966178+00:00' AIRFLOW_CTX_TRY_NUMBER='1' AIRFLOW_CTX_DAG_RUN_ID='manual__2025-09-01T07:48:31.966178+00:00'
+[2025-09-01T07:48:34.091+0000] {etl_pipeline.py:72} INFO - Downloading s3://landing/2025/09/01/1698ad2f-5b03-42cc-b845-caabf19e5078_applicants.csv -> /tmp/etl_staging/1698ad2f-5b03-42cc-b845-caabf19e5078_applicants.csv
+[2025-09-01T07:48:34.120+0000] {etl_pipeline.py:86} ERROR - Header validation failed for /tmp/etl_staging/1698ad2f-5b03-42cc-b845-caabf19e5078_applicants.csv
+Traceback (most recent call last):
+  File "/opt/airflow/dags/etl_pipeline.py", line 84, in perform_extract
+    raise RuntimeError(f"Missing expected columns: {missing}")
+RuntimeError: Missing expected columns: ['id', 'email']
+[2025-09-01T07:48:34.122+0000] {taskinstance.py:2698} ERROR - Task failed with exception
+Traceback (most recent call last):
+  File "/home/airflow/.local/lib/python3.8/site-packages/airflow/models/taskinstance.py", line 433, in _execute_task
+    result = execute_callable(context=context, **execute_callable_kwargs)
+  File "/home/airflow/.local/lib/python3.8/site-packages/airflow/operators/python.py", line 199, in execute
+    return_value = self.execute_callable()
+  File "/home/airflow/.local/lib/python3.8/site-packages/airflow/operators/python.py", line 216, in execute_callable
+    return self.python_callable(*self.op_args, **self.op_kwargs)
+  File "/opt/airflow/dags/etl_pipeline.py", line 200, in run_extract
+    return perform_extract(file_path=minio_key)
+  File "/opt/airflow/dags/etl_pipeline.py", line 84, in perform_extract
+    raise RuntimeError(f"Missing expected columns: {missing}")
+RuntimeError: Missing expected columns: ['id', 'email']
+[2025-09-01T07:48:34.149+0000] {taskinstance.py:1138} INFO - Marking task as FAILED. dag_id=etl_pipeline, task_id=extract, execution_date=20250901T074831, start_date=20250901T074833, end_date=20250901T074834
+[2025-09-01T07:48:34.164+0000] {standard_task_runner.py:107} ERROR - Failed to execute job 37 for task extract (Missing expected columns: ['id', 'email']; 187)
+[2025-09-01T07:48:34.189+0000] {local_task_job_runner.py:234} INFO - Task exited with return code 1
+[2025-09-01T07:48:34.243+0000] {taskinstance.py:3280} INFO - 0 downstream tasks scheduled from follow-on schedule check

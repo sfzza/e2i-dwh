@@ -6,7 +6,9 @@ SEEDS = [
     {"key": "tokenize_load", "name": "Tokenize & Load"},
     {"key": "e2i_tokenize_load", "name": "Tokenize & Load (alias)"},
     {"key": "archive", "name": "Archive to cold storage"},
+    {"key": "etl_pipeline", "name": "ETL Pipeline"},
 ]
+
 
 
 def seed_pipelines(db: Session):
