@@ -10,7 +10,7 @@ services:
     volumes:
       - airflow_pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"   # Airflow Postgres exposed on host port 5432
+      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -d $$POSTGRES_DB -U $$POSTGRES_USER"]
       interval: 5s
@@ -36,7 +36,6 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow_postgres/airflow
       AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
-      # --- ADDED: ClickHouse credentials for the DAG ---
       CLICKHOUSE_USER: user
       CLICKHOUSE_PASSWORD: password
     depends_on:
@@ -61,7 +60,6 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow_postgres/airflow
       AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
-      # --- ADDED: ClickHouse credentials for the DAG ---
       CLICKHOUSE_USER: user
       CLICKHOUSE_PASSWORD: password
     depends_on:
@@ -78,7 +76,7 @@ services:
       POSTGRES_PASSWORD: e2i_pass
       POSTGRES_DB: e2i_db
     ports:
-      - "5433:5432"   # host:container (use localhost:5433 to connect)
+      - "5433:5432"
     volumes:
       - e2i_pg:/var/lib/postgresql/data
     healthcheck:
@@ -113,8 +111,8 @@ services:
     container_name: minio
     command: server /data --console-address ":9001"
     ports:
-      - "9000:9000"  # API Port
-      - "9001:9001"  # Console/UI Port
+      - "9000:9000"
+      - "9001:9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
@@ -125,17 +123,65 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
-    
+
+  # Django app (main API)
+  django:
+    build:
+      context: ./e2i/backend/
+      dockerfile: Dockerfile.django
+    container_name: e2i_django
+    volumes:
+      - ./e2i/backend:/app
+    environment:
+      DJANGO_DB_ENGINE: django.db.backends.postgresql
+      DJANGO_DB_NAME: e2i_db
+      DJANGO_DB_USER: e2i_user
+      DJANGO_DB_PASSWORD: e2i_pass
+      DJANGO_DB_HOST: orchestrator_postgres
+      DJANGO_DB_PORT: 5432
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: uploads
+      ORCHESTRATOR_URL: http://orchestrator:8002/v1
+      DJANGO_DEBUG: "True"
+    depends_on:
+      orchestrator_postgres:
+        condition: service_healthy
+      orchestrator:
+        condition: service_started
+      minio:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8001"]
+
+  # Reporting service (another Django)
+  reporting:
+    build:
+      context: ./e2i/backend/
+      dockerfile: Dockerfile.django
+    container_name: e2i_reporting
+    env_file: ./e2i/orchestrator/.env
+    depends_on:
+      orchestrator_postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    ports:
+      - "8003:8003"
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8003"]
+
+  # ClickHouse server
   clickhouse:
     image: clickhouse/clickhouse-server:latest
     container_name: clickhouse
     environment:
-      # --- ADDED: Set credentials for the ClickHouse server ---
-      - CLICKHOUSE_USER=user
-      - CLICKHOUSE_PASSWORD=password
+      CLICKHOUSE_USER: user
+      CLICKHOUSE_PASSWORD: password
     ports:
-      - "8123:8123" # HTTP Port
-      - "9003:9000" # Native Client Port (host port changed to avoid conflict)
+      - "8123:8123"
+      - "9003:9000"
     volumes:
       - clickhouse_data:/var/lib/clickhouse/
       - ./init-clickhouse.sql:/docker-entrypoint-initdb.d/init.sql

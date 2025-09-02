@@ -1,0 +1,17 @@
+[2025-09-02T02:40:35.931+0000] {taskinstance.py:1956} INFO - Dependencies all met for dep_context=non-requeueable deps ti=<TaskInstance: etl_pipeline.load manual__2025-09-02T02:39:14.118727+00:00 [queued]>
+[2025-09-02T02:40:35.945+0000] {taskinstance.py:1956} INFO - Dependencies all met for dep_context=requeueable deps ti=<TaskInstance: etl_pipeline.load manual__2025-09-02T02:39:14.118727+00:00 [queued]>
+[2025-09-02T02:40:35.946+0000] {taskinstance.py:2170} INFO - Starting attempt 1 of 1
+[2025-09-02T02:40:35.964+0000] {taskinstance.py:2191} INFO - Executing <Task(PythonOperator): load> on 2025-09-02 02:39:14.118727+00:00
+[2025-09-02T02:40:35.980+0000] {standard_task_runner.py:60} INFO - Started process 3460 to run task
+[2025-09-02T02:40:35.986+0000] {standard_task_runner.py:87} INFO - Running: ['***', 'tasks', 'run', 'etl_pipeline', 'load', 'manual__2025-09-02T02:39:14.118727+00:00', '--job-id', '15', '--raw', '--subdir', 'DAGS_FOLDER/etl_pipeline.py', '--cfg-path', '/tmp/tmpg9ak_ee5']
+[2025-09-02T02:40:35.995+0000] {standard_task_runner.py:88} INFO - Job 15: Subtask load
+[2025-09-02T02:40:36.042+0000] {logging_mixin.py:188} WARNING - /home/***/.local/lib/python3.8/site-packages/***/settings.py:194 DeprecationWarning: The sql_alchemy_conn option in [core] has been moved to the sql_alchemy_conn option in [database] - the old setting has been used, but please update your config.
+[2025-09-02T02:40:36.256+0000] {task_command.py:423} INFO - Running <TaskInstance: etl_pipeline.load manual__2025-09-02T02:39:14.118727+00:00 [running]> on host f8a9cd7e9422
+[2025-09-02T02:40:36.609+0000] {taskinstance.py:2480} INFO - Exporting env vars: AIRFLOW_CTX_DAG_OWNER='***' AIRFLOW_CTX_DAG_ID='etl_pipeline' AIRFLOW_CTX_TASK_ID='load' AIRFLOW_CTX_EXECUTION_DATE='2025-09-02T02:39:14.118727+00:00' AIRFLOW_CTX_TRY_NUMBER='1' AIRFLOW_CTX_DAG_RUN_ID='manual__2025-09-02T02:39:14.118727+00:00'
+[2025-09-02T02:40:36.681+0000] {etl_pipeline.py:158} INFO - Reading processed file /tmp/etl_processed/processed_affe8453-7cb4-4dde-99d4-8da6c44d8f55_applicants.csv
+[2025-09-02T02:40:37.190+0000] {etl_pipeline.py:182} INFO - Inserting 20 rows into ClickHouse table applicants
+[2025-09-02T02:40:37.937+0000] {etl_pipeline.py:188} INFO - Load completed: 20 rows into applicants
+[2025-09-02T02:40:38.004+0000] {python.py:201} INFO - Done. Returned value was: None
+[2025-09-02T02:40:38.517+0000] {taskinstance.py:1138} INFO - Marking task as SUCCESS. dag_id=etl_pipeline, task_id=load, execution_date=20250902T023914, start_date=20250902T024035, end_date=20250902T024038
+[2025-09-02T02:40:39.181+0000] {local_task_job_runner.py:234} INFO - Task exited with return code 0
+[2025-09-02T02:40:41.150+0000] {taskinstance.py:3280} INFO - 0 downstream tasks scheduled from follow-on schedule check

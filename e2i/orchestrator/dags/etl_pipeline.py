@@ -26,7 +26,7 @@ MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
 MINIO_REGION = os.getenv("MINIO_REGION", "us-east-1")
-MINIO_LANDING_BUCKET = os.getenv("MINIO_LANDING_BUCKET", "landing")
+MINIO_LANDING_BUCKET = os.getenv("MINIO_LANDING_BUCKET", "uploads")
 MINIO_ARCHIVE_BUCKET = os.getenv("MINIO_ARCHIVE_BUCKET", "archive")
 
 # ClickHouse Configuration

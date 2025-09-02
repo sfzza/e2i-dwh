@@ -1,0 +1,17 @@
+[2025-09-02T02:40:28.088+0000] {taskinstance.py:1956} INFO - Dependencies all met for dep_context=non-requeueable deps ti=<TaskInstance: etl_pipeline.transform manual__2025-09-02T02:39:14.118727+00:00 [queued]>
+[2025-09-02T02:40:28.108+0000] {taskinstance.py:1956} INFO - Dependencies all met for dep_context=requeueable deps ti=<TaskInstance: etl_pipeline.transform manual__2025-09-02T02:39:14.118727+00:00 [queued]>
+[2025-09-02T02:40:28.109+0000] {taskinstance.py:2170} INFO - Starting attempt 1 of 1
+[2025-09-02T02:40:28.140+0000] {taskinstance.py:2191} INFO - Executing <Task(PythonOperator): transform> on 2025-09-02 02:39:14.118727+00:00
+[2025-09-02T02:40:28.163+0000] {standard_task_runner.py:60} INFO - Started process 3457 to run task
+[2025-09-02T02:40:28.178+0000] {standard_task_runner.py:87} INFO - Running: ['***', 'tasks', 'run', 'etl_pipeline', 'transform', 'manual__2025-09-02T02:39:14.118727+00:00', '--job-id', '14', '--raw', '--subdir', 'DAGS_FOLDER/etl_pipeline.py', '--cfg-path', '/tmp/tmp9zm3wv7u']
+[2025-09-02T02:40:28.190+0000] {standard_task_runner.py:88} INFO - Job 14: Subtask transform
+[2025-09-02T02:40:28.239+0000] {logging_mixin.py:188} WARNING - /home/***/.local/lib/python3.8/site-packages/***/settings.py:194 DeprecationWarning: The sql_alchemy_conn option in [core] has been moved to the sql_alchemy_conn option in [database] - the old setting has been used, but please update your config.
+[2025-09-02T02:40:28.425+0000] {task_command.py:423} INFO - Running <TaskInstance: etl_pipeline.transform manual__2025-09-02T02:39:14.118727+00:00 [running]> on host f8a9cd7e9422
+[2025-09-02T02:40:28.749+0000] {taskinstance.py:2480} INFO - Exporting env vars: AIRFLOW_CTX_DAG_OWNER='***' AIRFLOW_CTX_DAG_ID='etl_pipeline' AIRFLOW_CTX_TASK_ID='transform' AIRFLOW_CTX_EXECUTION_DATE='2025-09-02T02:39:14.118727+00:00' AIRFLOW_CTX_TRY_NUMBER='1' AIRFLOW_CTX_DAG_RUN_ID='manual__2025-09-02T02:39:14.118727+00:00'
+[2025-09-02T02:40:28.875+0000] {etl_pipeline.py:123} INFO - Reading staging file /tmp/etl_staging/affe8453-7cb4-4dde-99d4-8da6c44d8f55_applicants.csv
+[2025-09-02T02:40:29.394+0000] {etl_pipeline.py:143} INFO - Writing processed file to /tmp/etl_processed/processed_affe8453-7cb4-4dde-99d4-8da6c44d8f55_applicants.csv
+[2025-09-02T02:40:29.452+0000] {etl_pipeline.py:149} INFO - Transform completed: /tmp/etl_processed/processed_affe8453-7cb4-4dde-99d4-8da6c44d8f55_applicants.csv
+[2025-09-02T02:40:29.454+0000] {python.py:201} INFO - Done. Returned value was: /tmp/etl_processed/processed_affe8453-7cb4-4dde-99d4-8da6c44d8f55_applicants.csv
+[2025-09-02T02:40:29.879+0000] {taskinstance.py:1138} INFO - Marking task as SUCCESS. dag_id=etl_pipeline, task_id=transform, execution_date=20250902T023914, start_date=20250902T024028, end_date=20250902T024029
+[2025-09-02T02:40:30.182+0000] {local_task_job_runner.py:234} INFO - Task exited with return code 0
+[2025-09-02T02:40:30.517+0000] {taskinstance.py:3280} INFO - 1 downstream tasks scheduled from follow-on schedule check

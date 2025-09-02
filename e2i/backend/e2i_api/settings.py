@@ -90,12 +90,12 @@ WSGI_APPLICATION = "e2i_api.wsgi.application"
 # ---------------------------------------------------------------------
 DATABASES = {
     "default": {
-        "ENGINE": os.getenv("DJANGO_DB_ENGINE", "django.db.backends.sqlite3"),
-        "NAME": os.getenv("DJANGO_DB_NAME", BASE_DIR / "db.sqlite3"),
-        "USER": os.getenv("DJANGO_DB_USER", ""),
-        "PASSWORD": os.getenv("DJANGO_DB_PASSWORD", ""),
-        "HOST": os.getenv("DJANGO_DB_HOST", ""),
-        "PORT": os.getenv("DJANGO_DB_PORT", ""),
+        "ENGINE": os.getenv("DJANGO_DB_ENGINE", "django.db.backends.postgresql"),
+        "NAME": os.getenv("DJANGO_DB_NAME", "e2i_db"),
+        "USER": os.getenv("DJANGO_DB_USER", "e2i_user"),
+        "PASSWORD": os.getenv("DJANGO_DB_PASSWORD", "e2i_pass"),
+        "HOST": os.getenv("DJANGO_DB_HOST", "orchestrator_postgres"),
+        "PORT": os.getenv("DJANGO_DB_PORT", "5432"),
     }
 }
 
