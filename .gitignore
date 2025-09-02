@@ -28,3 +28,5 @@ build/
 .idea/
 
 .DS_Store
+
+e2i/orchestrator/logs/
