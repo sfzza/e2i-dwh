@@ -12,7 +12,7 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -d $$POSTGRES_DB -U $$POSTGRES_USER"]
+      test: ["CMD-SHELL", "pg_isready -d $POSTGRES_DB -U $POSTGRES_USER"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -38,8 +38,16 @@ services:
       AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
       CLICKHOUSE_USER: user
       CLICKHOUSE_PASSWORD: password
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 9000
+      CLICKHOUSE_DB: default
+      # Tokenization service variables
+      TOKENIZATION_ENDPOINT: http://tokenization_service:8004
+      TOKENIZATION_API_KEY: "your-secure-api-key-change-in-production"
     depends_on:
       airflow_postgres:
+        condition: service_healthy
+      tokenization_service:
         condition: service_healthy
     command: webserver
 
@@ -62,8 +70,16 @@ services:
       AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
       CLICKHOUSE_USER: user
       CLICKHOUSE_PASSWORD: password
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 9000
+      CLICKHOUSE_DB: default
+      # Tokenization service variables
+      TOKENIZATION_ENDPOINT: http://tokenization_service:8004
+      TOKENIZATION_API_KEY: "your-secure-api-key-change-in-production"
     depends_on:
       airflow_postgres:
+        condition: service_healthy
+      tokenization_service:
         condition: service_healthy
     command: scheduler
 
@@ -124,7 +140,65 @@ services:
       timeout: 20s
       retries: 3
 
-  # Django app (main API)
+  # ClickHouse server
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse
+    environment:
+      CLICKHOUSE_USER: user
+      CLICKHOUSE_PASSWORD: password
+      CLICKHOUSE_DB: default
+    ports:
+      - "8123:8123"
+      - "9003:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse/
+      - ./init-clickhouse.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--user", "user", "--password", "password", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Tokenization service database
+  tokenization_postgres:
+    image: postgres:15
+    container_name: tokenization_postgres
+    environment:
+      POSTGRES_USER: tokenization_user
+      POSTGRES_PASSWORD: tokenization_pass
+      POSTGRES_DB: tokenization_db
+    volumes:
+      - tokenization_pgdata:/var/lib/postgresql/data
+      - ./tokenization-service/init-tokenization-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "tokenization_user", "-d", "tokenization_db"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+
+  # Tokenization service
+  tokenization_service:
+    build:
+      context: ./tokenization-service
+      dockerfile: Dockerfile
+    container_name: tokenization_service
+    ports:
+      - "8004:8004"
+    environment:
+      TOKENIZATION_API_KEY: "your-secure-api-key-change-in-production"
+      TOKENIZATION_SALT: "your-secret-salt-change-in-production"
+      TOKENIZATION_DB_URL: "postgresql://tokenization_user:tokenization_pass@tokenization_postgres:5432/tokenization_db"
+    depends_on:
+      tokenization_postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Django service
   django:
     build:
       context: ./e2i/backend/
@@ -132,6 +206,7 @@ services:
     container_name: e2i_django
     volumes:
       - ./e2i/backend:/app
+      - ./exports:/app/exports
     environment:
       DJANGO_DB_ENGINE: django.db.backends.postgresql
       DJANGO_DB_NAME: e2i_db
@@ -145,6 +220,20 @@ services:
       MINIO_BUCKET: uploads
       ORCHESTRATOR_URL: http://orchestrator:8002/v1
       DJANGO_DEBUG: "True"
+      # ClickHouse environment variables
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 9000
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: user
+      CLICKHOUSE_PASSWORD: password
+      # Reporting environment variables
+      REPORTING_EXPORT_DIR: /app/exports
+      REPORTING_EXPORT_TTL: 3600
+      REPORTING_MAX_EXPORT_ROWS: 100000
+      # Detokenization service variables
+      DETOKENIZATION_ENDPOINT: http://tokenization_service:8004
+      DETOKENIZATION_API_KEY: "your-secure-api-key-change-in-production"
+      DETOKENIZATION_TIMEOUT: 30
     depends_on:
       orchestrator_postgres:
         condition: service_healthy
@@ -152,47 +241,96 @@ services:
         condition: service_started
       minio:
         condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      tokenization_service:
+        condition: service_healthy
     ports:
       - "8001:8001"
     command: ["python", "manage.py", "runserver", "0.0.0.0:8001"]
 
-  # Reporting service (another Django)
+  # Reporting service
   reporting:
     build:
       context: ./e2i/backend/
       dockerfile: Dockerfile.django
     container_name: e2i_reporting
-    env_file: ./e2i/orchestrator/.env
+    volumes:
+      - ./e2i/backend:/app
+      - ./exports:/app/exports
+    environment:
+      DJANGO_DB_ENGINE: django.db.backends.postgresql
+      DJANGO_DB_NAME: e2i_db
+      DJANGO_DB_USER: e2i_user
+      DJANGO_DB_PASSWORD: e2i_pass
+      DJANGO_DB_HOST: orchestrator_postgres
+      DJANGO_DB_PORT: 5432
+      DJANGO_DEBUG: "True"
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 9000
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: user
+      CLICKHOUSE_PASSWORD: password
+      REPORTING_EXPORT_DIR: /app/exports
+      REPORTING_EXPORT_TTL: 3600
+      REPORTING_MAX_EXPORT_ROWS: 100000
+      # Detokenization service variables
+      DETOKENIZATION_ENDPOINT: http://tokenization_service:8004
+      DETOKENIZATION_API_KEY: "your-secure-api-key-change-in-production"
+      DETOKENIZATION_TIMEOUT: 30
     depends_on:
       orchestrator_postgres:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
+      tokenization_service:
+        condition: service_healthy
     ports:
       - "8003:8003"
     command: ["python", "manage.py", "runserver", "0.0.0.0:8003"]
 
-  # ClickHouse server
-  clickhouse:
-    image: clickhouse/clickhouse-server:latest
-    container_name: clickhouse
+  # Metabase database
+  metabase_postgres:
+    image: postgres:15
+    container_name: metabase_postgres
     environment:
-      CLICKHOUSE_USER: user
-      CLICKHOUSE_PASSWORD: password
-    ports:
-      - "8123:8123"
-      - "9003:9000"
+      POSTGRES_USER: metabase
+      POSTGRES_PASSWORD: metabase
+      POSTGRES_DB: metabase
     volumes:
-      - clickhouse_data:/var/lib/clickhouse/
-      - ./init-clickhouse.sql:/docker-entrypoint-initdb.d/init.sql
+      - metabase_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      test: ["CMD", "pg_isready", "-U", "metabase"]
       interval: 10s
-      timeout: 5s
       retries: 5
+      start_period: 5s
+
+  # Metabase service
+  metabase:
+    image: metabase/metabase:latest
+    container_name: metabase
+    ports:
+      - "3000:3000"
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: metabase
+      MB_DB_PORT: 5432
+      MB_DB_USER: metabase
+      MB_DB_PASS: metabase
+      MB_DB_HOST: metabase_postgres
+    depends_on:
+      metabase_postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    volumes:
+      - metabase_data:/metabase-data
 
 volumes:
   airflow_pgdata:
   e2i_pg:
   minio_data:
   clickhouse_data:
+  metabase_data:
+  metabase_pgdata:
+  tokenization_pgdata:

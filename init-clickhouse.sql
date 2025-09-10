@@ -1,7 +1,9 @@
--- Re-create the table with the correct schema
-DROP TABLE IF EXISTS applicants;
+-- Create database if not exists
+CREATE DATABASE IF NOT EXISTS e2i_warehouse;
+USE e2i_warehouse;
 
-CREATE TABLE applicants (
+-- Re-create the table with the correct schema
+CREATE TABLE IF NOT EXISTS applicants (
     `applicant_id` UInt64,
     `name` String,
     `dob` Nullable(String)

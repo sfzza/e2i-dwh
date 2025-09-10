@@ -159,3 +159,35 @@ MINIO_STORAGE = {
     "BUCKET_NAME": os.getenv("MINIO_BUCKET", "uploads"),
     "USE_SSL": os.getenv("MINIO_USE_SSL", "False").lower() == "true",
 }
+
+# Add this to the end of your settings.py file
+
+# ---------------------------------------------------------------------
+# CLICKHOUSE (for reporting service)
+# ---------------------------------------------------------------------
+CLICKHOUSE = {
+    "HOST": os.getenv("CLICKHOUSE_HOST", "clickhouse"),
+    "PORT": int(os.getenv("CLICKHOUSE_PORT", "9000")),
+    "USER": os.getenv("CLICKHOUSE_USER", "user"),
+    "PASSWORD": os.getenv("CLICKHOUSE_PASSWORD", "password"),
+    "DATABASE": os.getenv("CLICKHOUSE_DB", "default"),  # Changed to default
+    "QUERY_TIMEOUT": int(os.getenv("CLICKHOUSE_QUERY_TIMEOUT", "30")),
+}
+
+# ---------------------------------------------------------------------
+# REPORTING CONFIGURATION
+# ---------------------------------------------------------------------
+REPORTING = {
+    "EXPORT_DIR": os.getenv("REPORTING_EXPORT_DIR", str(BASE_DIR / "exports")),
+    "EXPORT_TTL_SECONDS": int(os.getenv("REPORTING_EXPORT_TTL", "3600")),  # 1 hour
+    "MAX_EXPORT_ROWS": int(os.getenv("REPORTING_MAX_EXPORT_ROWS", "100000")),
+}
+
+# ---------------------------------------------------------------------
+# DETOKENIZATION SERVICE
+# ---------------------------------------------------------------------
+DETOKENIZATION = {
+    "ENDPOINT": os.getenv("DETOKENIZATION_ENDPOINT", "http://detokenization-service:8080"),
+    "API_KEY": os.getenv("DETOKENIZATION_API_KEY", ""),
+    "TIMEOUT": int(os.getenv("DETOKENIZATION_TIMEOUT", "30")),
+}
