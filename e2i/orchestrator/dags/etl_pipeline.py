@@ -1,15 +1,17 @@
-# e2i/orchestrator/dags/etl_pipeline.py
+# e2i/orchestrator/dags/etl_pipeline_updated.py
 
 from __future__ import annotations
 
 import logging
 import os
-from datetime import timedelta
-
-import boto3
 import pandas as pd
 import requests
 import hashlib
+import psycopg2
+import json
+from datetime import timedelta
+from typing import Dict, List, Tuple, Any
+
 from airflow.models.dag import DAG
 from airflow.operators.python import PythonOperator
 from botocore.client import Config
@@ -48,10 +50,15 @@ TOKENIZATION_API_KEY = os.getenv("TOKENIZATION_API_KEY", "your-secure-api-key-ch
 # Local File Paths within the Airflow Worker
 LOCAL_STAGING_DIR = os.getenv("LOCAL_STAGING_DIR", "/tmp/etl_staging")
 LOCAL_PROCESSED_DIR = os.getenv("LOCAL_PROCESSED_DIR", "/tmp/etl_processed")
-EXPECTED_COLUMNS = [h.strip() for h in os.getenv("EXPECTED_COLUMNS", "name,dob").split(",")]
 
-# Columns to be tokenized
-TOKENIZED_COLUMNS = ["name"]
+# Add database connection for reading mappings
+DB_CONFIG = {
+    'host': os.getenv('DJANGO_DB_HOST', 'orchestrator_postgres'),
+    'port': os.getenv('DJANGO_DB_PORT', '5432'),
+    'database': os.getenv('DJANGO_DB_NAME', 'e2i_db'),
+    'user': os.getenv('DJANGO_DB_USER', 'e2i_user'),
+    'password': os.getenv('DJANGO_DB_PASSWORD', 'e2i_pass'),
+}
 
 # -------------------------------------------------------------------
 # ETL Core Logic
@@ -71,6 +78,7 @@ def _get_s3_client():
 def perform_extract(file_path: str) -> str:
     """
     Downloads raw CSV from MinIO, validates headers, and stores it in a local staging location.
+    The header validation is now done by the transform step using template mappings.
     """
     os.makedirs(LOCAL_STAGING_DIR, exist_ok=True)
     client = _get_s3_client()
@@ -84,23 +92,80 @@ def perform_extract(file_path: str) -> str:
         logger.exception("Failed to download file from MinIO: %s", e)
         raise RuntimeError(f"Failed to download {MINIO_LANDING_BUCKET}/{file_path}") from e
 
-    try:
-        with open(staging_path, "r", encoding="utf-8") as f:
-            header_line = f.readline()
-            header = [h.strip().lower() for h in header_line.strip().split(",") if h.strip()]
-            missing = [c for c in EXPECTED_COLUMNS if c not in header]
-            if missing:
-                raise RuntimeError(f"Missing expected columns: {missing}")
-    except Exception:
-        logger.exception("Header validation failed for %s", staging_path)
-        try:
-            os.remove(staging_path)
-        except Exception:
-            pass
-        raise
-    
     logger.info("Extract completed: %s", staging_path)
     return staging_path
+
+
+def get_upload_mappings(upload_id: str) -> Dict[str, Any]:
+    """
+    Fetch column mappings and template info for an upload from the database.
+    Returns the template and column mapping configuration.
+    """
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+
+        # Get upload template info
+        cursor.execute("""
+            SELECT ut.selected_template_id, dt.name as template_name, dt.target_table
+            FROM upload_template_info ut
+            JOIN data_templates dt ON ut.selected_template_id = dt.id
+            WHERE ut.upload_id = %s
+        """, (upload_id,))
+
+        template_row = cursor.fetchone()
+        if not template_row:
+            raise ValueError(f"No template mapping found for upload {upload_id}")
+
+        template_id, template_name, target_table = template_row
+
+        # Get column mappings with template column info
+        cursor.execute("""
+            SELECT
+                cm.source_column,
+                tc.name as target_column,
+                tc.data_type,
+                tc.processing_type,
+                tc.processing_config,
+                tc.is_required,
+                tc.max_length,
+                tc.regex_pattern,
+                cm.transform_function,
+                cm.transform_params
+            FROM column_mappings cm
+            JOIN template_columns tc ON cm.target_column_id = tc.id
+            WHERE cm.upload_id = %s
+            ORDER BY tc.order
+        """, (upload_id,))
+
+        mappings = []
+        for row in cursor.fetchall():
+            mappings.append({
+                'source_column': row[0],
+                'target_column': row[1],
+                'data_type': row[2],
+                'processing_type': row[3],
+                'processing_config': row[4] or {},
+                'is_required': row[5],
+                'max_length': row[6],
+                'regex_pattern': row[7],
+                'transform_function': row[8],
+                'transform_params': row[9] or {},
+            })
+
+        cursor.close()
+        conn.close()
+
+        return {
+            'template_id': template_id,
+            'template_name': template_name,
+            'target_table': target_table,
+            'mappings': mappings
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get upload mappings: {e}")
+        raise
 
 def tokenize_with_service(values: list, data_type: str = "name") -> dict:
     """
@@ -109,7 +174,7 @@ def tokenize_with_service(values: list, data_type: str = "name") -> dict:
     """
     if not values:
         return {}
-    
+
     try:
         response = requests.post(
             f"{TOKENIZATION_ENDPOINT}/api/v1/tokenize",
@@ -124,13 +189,13 @@ def tokenize_with_service(values: list, data_type: str = "name") -> dict:
             timeout=30
         )
         response.raise_for_status()
-        
+
         result = response.json()
         mappings = result.get("mappings", {})
-        
+
         logger.info(f"Successfully tokenized {len(mappings)} {data_type} values via service")
         return mappings
-        
+
     except requests.exceptions.RequestException as e:
         logger.error(f"Tokenization service call failed: {e}")
         # Fallback to local hashing (backward compatibility)
@@ -140,63 +205,226 @@ def tokenize_with_service(values: list, data_type: str = "name") -> dict:
             for value in values
         }
 
-def tokenize_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Replaces specified columns with tokens using the tokenization service.
-    Falls back to local hashing if service is unavailable.
-    """
-    for col in TOKENIZED_COLUMNS:
-        if col in df.columns:
-            # Get unique values to minimize API calls
-            unique_values = df[col].dropna().unique().tolist()
-            
-            if unique_values:
-                # Call tokenization service
-                token_mapping = tokenize_with_service(unique_values, col)
-                
-                # Apply tokenization
-                df[col] = df[col].map(lambda x: token_mapping.get(x, x) if pd.notna(x) else x)
-                
-                logger.info(f"Tokenized column '{col}' with {len(unique_values)} unique values")
-            
-    return df
 
-def perform_transform(staging_path: str) -> str:
+def apply_transform_function(series: pd.Series, func_name: str, params: Dict) -> pd.Series:
+    """Apply specified transformation function to a pandas Series."""
+
+    if func_name == 'upper':
+        return series.astype(str).str.upper()
+    elif func_name == 'lower':
+        return series.astype(str).str.lower()
+    elif func_name == 'trim':
+        return series.astype(str).str.strip()
+    elif func_name == 'title':
+        return series.astype(str).str.title()
+    elif func_name == 'format_date':
+        date_format = params.get('format', '%Y-%m-%d')
+        return pd.to_datetime(series, errors='coerce').dt.strftime(date_format)
+    elif func_name == 'extract_numbers':
+        return series.astype(str).str.extract(r'(\d+)', expand=False)
+    elif func_name == 'prefix':
+        prefix = params.get('prefix', '')
+        return prefix + series.astype(str)
+    elif func_name == 'suffix':
+        suffix = params.get('suffix', '')
+        return series.astype(str) + suffix
+    elif func_name == 'replace':
+        old_val = params.get('old', '')
+        new_val = params.get('new', '')
+        return series.astype(str).str.replace(old_val, new_val)
+    else:
+        logger.warning(f"Unknown transform function: {func_name}")
+        return series
+
+
+def convert_data_type(series: pd.Series, data_type: str, mapping: Dict) -> pd.Series:
+    """Convert series to specified data type with validation."""
+
+    try:
+        if data_type == 'string':
+            result = series.astype(str)
+            max_length = mapping.get('max_length')
+            if max_length:
+                result = result.str[:max_length]
+            return result
+
+        elif data_type == 'integer':
+            return pd.to_numeric(series, errors='coerce').astype('Int64')
+
+        elif data_type == 'float':
+            return pd.to_numeric(series, errors='coerce')
+
+        elif data_type == 'datetime':
+            return pd.to_datetime(series, errors='coerce')
+
+        elif data_type == 'date':
+            return pd.to_datetime(series, errors='coerce').dt.date
+
+        elif data_type == 'boolean':
+            return series.astype(str).str.lower().isin(['true', '1', 'yes', 'y'])
+
+        else:
+            logger.warning(f"Unknown data type: {data_type}, keeping as string")
+            return series.astype(str)
+
+    except Exception as e:
+        logger.error(f"Data type conversion failed for {data_type}: {e}")
+        return series
+
+
+def apply_tokenization(series: pd.Series, mapping: Dict) -> pd.Series:
+    """Apply tokenization to sensitive data using the tokenization service."""
+
+    # Get unique non-null values to minimize API calls
+    unique_values = series.dropna().unique().tolist()
+    if not unique_values:
+        return series
+
+    # Determine data type for tokenization service
+    processing_config = mapping.get('processing_config', {})
+    data_type = processing_config.get('token_type', 'general')
+
+    try:
+        # Use existing tokenization service function
+        token_mapping = tokenize_with_service(unique_values, data_type)
+
+        # Apply tokenization mapping
+        return series.map(lambda x: token_mapping.get(x, x) if pd.notna(x) else x)
+
+    except Exception as e:
+        logger.error(f"Tokenization failed: {e}")
+        # Fallback to hashing
+        return apply_hashing(series, mapping)
+
+
+def apply_hashing(series: pd.Series, mapping: Dict) -> pd.Series:
+    """Apply hashing transformation."""
+    import hashlib
+
+    def hash_value(val):
+        if pd.isna(val):
+            return val
+        return hashlib.sha256(str(val).encode()).hexdigest()
+
+    return series.apply(hash_value)
+
+
+def apply_normalization(series: pd.Series, mapping: Dict) -> pd.Series:
+    """Apply normalization rules."""
+    processing_config = mapping.get('processing_config', {})
+
+    result = series.astype(str).str.strip()
+
+    if processing_config.get('lowercase', False):
+        result = result.str.lower()
+
+    if processing_config.get('remove_spaces', False):
+        result = result.str.replace(' ', '')
+
+    if processing_config.get('remove_special_chars', False):
+        result = result.str.replace(r'[^a-zA-Z0-9]', '', regex=True)
+
+    return result
+
+
+def apply_column_transformations(df: pd.DataFrame, mappings: List[Dict]) -> pd.DataFrame:
     """
-    Cleans the staged CSV, tokenizes it, and produces a processed file.
+    Apply transformations based on column mappings configuration.
+    """
+    result_df = pd.DataFrame()
+
+    for mapping in mappings:
+        source_col = mapping['source_column']
+        target_col = mapping['target_column']
+        data_type = mapping['data_type']
+        processing_type = mapping['processing_type']
+        transform_function = mapping.get('transform_function')
+
+        if source_col not in df.columns:
+            if mapping['is_required']:
+                raise ValueError(f"Required source column '{source_col}' not found in file")
+            else:
+                # Create empty column for optional fields
+                result_df[target_col] = None
+                continue
+
+        # Get source data
+        source_data = df[source_col].copy()
+
+        # Apply custom transform function if specified
+        if transform_function:
+            source_data = apply_transform_function(source_data, transform_function, mapping.get('transform_params', {}))
+
+        # Apply data type conversion
+        source_data = convert_data_type(source_data, data_type, mapping)
+
+        # Apply processing (tokenization, hashing, etc.)
+        if processing_type == 'tokenize':
+            source_data = apply_tokenization(source_data, mapping)
+        elif processing_type == 'hash':
+            source_data = apply_hashing(source_data, mapping)
+        elif processing_type == 'normalize':
+            source_data = apply_normalization(source_data, mapping)
+
+        result_df[target_col] = source_data
+
+    return result_df
+
+
+def perform_transform_with_mappings(staging_path: str, upload_id: str) -> str:
+    """
+    Enhanced transform function that uses database-driven column mappings.
     """
     os.makedirs(LOCAL_PROCESSED_DIR, exist_ok=True)
+
     try:
         logger.info("Reading staging file %s", staging_path)
         df = pd.read_csv(staging_path)
 
-        # --- Data Cleaning ---
-        df.columns = [c.strip().lower() for c in df.columns]
-        df = df.dropna(how="all")
-        for c in df.select_dtypes(include="object").columns:
-            df[c] = df[c].astype(str).str.strip()
-        
-        # Name standardization before tokenization
-        if "name" in df.columns:
-            df["name"] = df["name"].apply(lambda v: v.title() if isinstance(v, str) else v)
-        
-        # --- Tokenization with Service ---
-        df = tokenize_columns(df)
-        
+        # Get mapping configuration from database
+        mapping_config = get_upload_mappings(upload_id)
+        logger.info(f"Using template: {mapping_config['template_name']}")
+
+        # Apply column mappings and transformations
+        processed_df = apply_column_transformations(df, mapping_config['mappings'])
+
+        # Validate required columns
+        required_cols = [m['target_column'] for m in mapping_config['mappings'] if m['is_required']]
+        missing_data = []
+        for col in required_cols:
+            if col in processed_df.columns:
+                null_count = processed_df[col].isnull().sum()
+                if null_count > 0:
+                    missing_data.append(f"{col}: {null_count} null values")
+
+        if missing_data:
+            logger.warning(f"Data quality issues: {missing_data}")
+
+        # Save processed file
         processed_filename = f"processed_{os.path.basename(staging_path)}"
         processed_path = os.path.join(LOCAL_PROCESSED_DIR, processed_filename)
-        
+
         logger.info("Writing processed file to %s", processed_path)
-        df.to_csv(processed_path, index=False)
-        
+        processed_df.to_csv(processed_path, index=False)
+
+        # Update database with processing status
+        update_upload_processing_status(upload_id, 'transformed', {
+            'target_table': mapping_config['target_table'],
+            'processed_columns': list(processed_df.columns),
+            'row_count': len(processed_df),
+            'data_quality_issues': missing_data,
+        })
+
     except Exception as e:
         logger.exception("Transformation failed for %s", staging_path)
+        update_upload_processing_status(upload_id, 'failed', {'error': str(e)})
         raise RuntimeError(f"Transform failed for {staging_path}") from e
 
     logger.info("Transform completed: %s", processed_path)
     return processed_path
 
-def perform_load(processed_path: str):
+
+def perform_load(processed_path: str, upload_id: str):
     """
     Loads the processed dataset into the ClickHouse data warehouse.
     """
@@ -212,6 +440,10 @@ def perform_load(processed_path: str):
         return
 
     try:
+        # Get target table from database
+        mapping_config = get_upload_mappings(upload_id)
+        target_table = mapping_config['target_table']
+        
         client = Client(
             host=CLICKHOUSE_HOST,
             port=CLICKHOUSE_PORT,
@@ -223,16 +455,16 @@ def perform_load(processed_path: str):
         records = df.where(pd.notnull(df), None).to_records(index=False).tolist()
 
         cols_sql = ", ".join(f"`{c}`" for c in cols)
-        insert_sql = f"INSERT INTO {CLICKHOUSE_TABLE} ({cols_sql}) VALUES"
+        insert_sql = f"INSERT INTO {target_table} ({cols_sql}) VALUES"
 
-        logger.info("Inserting %d rows into ClickHouse table %s", len(records), CLICKHOUSE_TABLE)
+        logger.info("Inserting %d rows into ClickHouse table %s", len(records), target_table)
         client.execute(insert_sql, records)
-        
+
     except Exception as e:
         logger.exception("Failed to insert into ClickHouse: %s", e)
         raise RuntimeError(f"Load failed for {processed_path} into {CLICKHOUSE_TABLE}") from e
 
-    logger.info("Load completed: %d rows into %s", len(records), CLICKHOUSE_TABLE)
+    logger.info("Load completed: %d rows into %s", len(records), target_table)
 
 def perform_archive(file_path: str):
     """
@@ -252,9 +484,36 @@ def perform_archive(file_path: str):
         s3.delete_object(Bucket=MINIO_LANDING_BUCKET, Key=file_path)
 
         logger.info(f"Archived {file_path} from {MINIO_LANDING_BUCKET} -> {MINIO_ARCHIVE_BUCKET}")
-        
+
     except (BotoCoreError, ClientError) as e:
         raise RuntimeError(f"Archive failed for {file_path}: {e}")
+
+def update_upload_processing_status(upload_id: str, status: str, details: Dict):
+    """Update upload status in database with processing details."""
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            UPDATE uploads
+            SET status = %s, updated_at = NOW()
+            WHERE id = %s
+        """, (status, upload_id))
+
+        # Also update validation report with processing details if needed
+        cursor.execute("""
+            UPDATE validation_reports
+            SET stats = %s
+            WHERE upload_id = %s
+        """, (json.dumps(details), upload_id))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+    except Exception as e:
+        logger.error(f"Failed to update upload status: {e}")
+
 
 # -------------------------------------------------------------------
 # Airflow Task Wrapper Functions
@@ -267,19 +526,36 @@ def run_extract(**kwargs):
         raise ValueError("Missing 'minioKey' in DAG run configuration.")
     return perform_extract(file_path=minio_key)
 
-def run_transform(**kwargs):
+
+def run_transform_with_mappings(**kwargs):
+    """Updated transform task that uses column mappings."""
     ti = kwargs["ti"]
     staging_path = ti.xcom_pull(task_ids="extract")
     if not staging_path:
         raise ValueError("Could not find staged file path from extract task.")
-    return perform_transform(staging_path=staging_path)
+
+    # Get upload_id from DAG run configuration
+    conf = kwargs["dag_run"].conf or {}
+    upload_id = conf.get("uploadId")
+    if not upload_id:
+        raise ValueError("Missing 'uploadId' in DAG run configuration.")
+
+    return perform_transform_with_mappings(staging_path=staging_path, upload_id=upload_id)
 
 def run_load(**kwargs):
     ti = kwargs["ti"]
     processed_path = ti.xcom_pull(task_ids="transform")
     if not processed_path:
         raise ValueError("Could not find processed file path from transform task.")
-    perform_load(processed_path=processed_path)
+    
+    # Get upload_id from DAG run configuration
+    conf = kwargs["dag_run"].conf or {}
+    upload_id = conf.get("uploadId")
+    if not upload_id:
+        raise ValueError("Missing 'uploadId' in DAG run configuration.")
+
+    perform_load(processed_path=processed_path, upload_id=upload_id)
+
 
 def run_archive(**kwargs):
     conf = kwargs["dag_run"].conf or {}
@@ -298,23 +574,23 @@ with DAG(
     schedule=None,
     catchup=False,
     doc_md="""
-    ## ETL Pipeline with Production Tokenization Service
-    This DAG processes CSV files and tokenizes sensitive data using a secure tokenization service.
-    **Trigger with configuration:** `{"minioKey": "your-file-name.csv"}`
-    
+    ## ETL Pipeline with Production Tokenization Service and Dynamic Mappings
+    This DAG processes CSV files and tokenizes sensitive data using a secure tokenization service and database-driven column mappings.
+    **Trigger with configuration:** `{"minioKey": "your-file-name.csv", "uploadId": "your-upload-uuid"}`
+
     **Process:**
-    1. Extract: Download CSV from MinIO
-    2. Transform: Clean data and tokenize PII using tokenization service
-    3. Load: Insert tokenized data into ClickHouse
-    4. Archive: Move original file to archive bucket
-    
+    1. Extract: Download CSV from MinIO.
+    2. Transform: Fetches column mappings from the database, cleans and processes data based on the defined rules, and tokenizes PII.
+    3. Load: Inserts the processed data into the appropriate ClickHouse table, which is also determined by the template.
+    4. Archive: Moves the original file to the archive bucket.
+
     **Features:**
-    - Production tokenization service with secure token storage
-    - Fallback to local hashing if service unavailable
-    - Audit trail for all tokenization operations
-    - Efficient batching of tokenization API calls
+    - Dynamic column mapping and transformation
+    - Database-driven data types and processing rules
+    - Secure tokenization service integration
+    - Handles data quality issues like missing required columns
     """,
-    tags=["etl", "minio", "clickhouse", "tokenization", "production"],
+    tags=["etl", "minio", "clickhouse", "tokenization", "dynamic", "production"],
 ) as dag:
     extract_task = PythonOperator(
         task_id="extract",
@@ -323,7 +599,7 @@ with DAG(
 
     transform_task = PythonOperator(
         task_id="transform",
-        python_callable=run_transform,
+        python_callable=run_transform_with_mappings,
     )
 
     load_task = PythonOperator(

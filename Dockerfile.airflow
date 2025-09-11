@@ -4,5 +4,4 @@ FROM apache/airflow:2.8.1
 USER airflow
 
 # Install MinIO SDK into the Airflow environment
-RUN pip install --no-cache-dir minio clickhouse-driver
-RUN pip install requests==2.31.0
+RUN pip install --no-cache-dir minio clickhouse-driver boto3 requests==2.31.0

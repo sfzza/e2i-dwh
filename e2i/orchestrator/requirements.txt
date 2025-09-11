@@ -7,3 +7,4 @@ python-dotenv>=1.0.1
 httpx>=0.27.2
 orjson==3.10.7
 ulid-py>=1.1.0
+boto3
