@@ -1,4 +1,5 @@
-from django.shortcuts import render  # optional if you serve templates
+# The top part of the file remains unchanged
+from django.shortcuts import render
 from django.http import JsonResponse, HttpRequest, HttpResponseNotAllowed
 from django.views.decorators.csrf import csrf_exempt
 from django.db import transaction
@@ -13,15 +14,12 @@ import json
 import os
 import typing as t
 import uuid
-import httpx # NEW: Import httpx
+import httpx
 
 from .models import Upload, ValidationReport
 
-# ---- Optional deps guarded (don’t break outside this app) --------------------
-# Removed requests dependency and its try/except block
-
 try:
-    from minio import Minio  # MinIO client
+    from minio import Minio
 except Exception:  # pragma: no cover
     Minio = None  # type: ignore
 
@@ -53,12 +51,6 @@ def _env_float(key: str, default: float) -> float:
 
 
 def _required_headers() -> t.List[str]:
-    """
-    Which headers are mandatory for ingestion CSV.
-    Controlled via INGEST_REQUIRED_HEADERS env var.
-    """
-    # raw = os.getenv("INGEST_REQUIRED_HEADERS", "applicant_id,name,dob")
-    # return [h.strip() for h in raw.split(",") if h.strip()]
     return []
 
 
@@ -69,11 +61,7 @@ def _json_error(code: str, message: str, status: int = 400, details: t.Optional[
     return JsonResponse(payload, status=status)
 
 def _size_limit_mb() -> float:
-    """
-    Max file size in MB. Controlled by INGEST_MAX_SIZE_MB env var.
-    """
     return _env_float("INGEST_MAX_SIZE_MB", 100.0)
-
 
 # ---------------------------------------------------------------- MinIO utils
 _MINIO_CLIENT: t.Optional["Minio"] = None  # cached
@@ -105,21 +93,12 @@ def _bucket_name() -> str:
 
 
 def _build_object_key(user_id: uuid.UUID, filename: str) -> str:
-    """
-    Standardized object key: YYYY/MM/DD/<uuid>_<filename>
-    """
     today = dt.date.today()
     safe = get_valid_filename(filename or "file.csv")
     return f"{today.year}/{today.month:02d}/{today.day:02d}/{uuid.uuid4()}_{safe}"
 
 
 def _current_user_id(req: HttpRequest) -> uuid.UUID:
-    """
-    Extract user id from request. Priority:
-    1. req.user.id if authenticated
-    2. X-User-Id header
-    3. fallback to 000...0 UUID
-    """
     u = getattr(req, "user", None)
     if getattr(u, "is_authenticated", False) and getattr(u, "id", None):
         try:
@@ -146,63 +125,47 @@ def _detect_encoding(bucket: str, key: str, byte_limit: int = 65536) -> str:
 
 def _validate_csv(bucket: str, key: str) -> dict:
     client = _get_minio_client()
-
     max_rows = _env_int("INGEST_MAX_ROWS", 1_000_000)
     warn_pct = _env_float("INGEST_EMPTY_WARN_PCT", 1.0)
     fail_pct = _env_float("INGEST_EMPTY_FAIL_PCT", 5.0)
     required = _required_headers()
-
     encoding = _detect_encoding(bucket, key)
     warnings, errors = [], []
     total_rows, empty_rows = 0, 0
     missing, extra = [], []
-
     if encoding not in ("utf-8", "ascii"):
         errors.append(f"Unsupported encoding: {encoding}. Only UTF-8/ASCII allowed.")
-
-    # ✅ Read the whole object into memory first
     with client.get_object(bucket, key) as resp:
-        data = resp.read()   # <-- consume stream fully
-
-    # Now wrap in BytesIO so we own the buffer
+        data = resp.read()
     text_stream = io.TextIOWrapper(io.BytesIO(data), encoding=encoding, errors="replace", newline="")
     reader = csv.reader(text_stream)
-
     try:
         header = next(reader, [])
     except Exception:
         header = []
-
     missing = [h for h in required if h not in header]
     extra = [h for h in header if h not in required]
-
     if missing:
         errors.append(f"Missing required headers: {missing}")
     if extra:
         warnings.append(f"Extra headers: {extra}")
-
     header_len = len(header)
-
     for row in reader:
         total_rows += 1
         if not any((c or "").strip() for c in row):
             empty_rows += 1
-
         if header_len and len(row) != header_len:
             errors.append("Row has mismatched column count.")
             break
-
         if total_rows > max_rows:
             errors.append(f"Row limit exceeded: > {max_rows}")
             break
-
     if total_rows > 0:
         pct = (empty_rows / total_rows) * 100.0
         if pct > fail_pct:
             errors.append(f"Too many empty rows ({pct:.2f}%).")
         elif pct > warn_pct:
             warnings.append(f"Empty rows warning ({pct:.2f}%).")
-
     return {
         "encoding": encoding,
         "required_headers_missing": missing,
@@ -217,25 +180,30 @@ def _validate_csv(bucket: str, key: str) -> dict:
 # NEW: A simplified notify function using httpx
 ORCH_URL = os.getenv("ORCHESTRATOR_URL", "http://e2i_orchestrator:8002")
 
-def _notify_orchestrator(upload_id: uuid.UUID, minio_key: str, validation_summary: dict) -> t.Optional[dict]:
+def _notify_orchestrator(upload_id: uuid.UUID, minio_key: str, validation_summary: dict = None, template_id: t.Optional[uuid.UUID] = None) -> t.Optional[dict]:
     with httpx.Client() as client:
         try:
+            payload = {
+                "pipelineKey": "etl_pipeline",
+                "params": {
+                    "uploadId": str(upload_id),
+                    "minioKey": minio_key,
+                    "validation": validation_summary,
+                },
+                "idempotencyKey": f"upload:{upload_id}"
+            }
+            if template_id:
+                payload["params"]["templateId"] = str(template_id)
+            
             response = client.post(
                 f"{ORCH_URL}/pipelines/run",
-                json={
-                    "pipelineKey": "etl_pipeline",
-                    "params": {
-                        "uploadId": str(upload_id),
-                        "minioKey": minio_key,
-                        "validation": validation_summary
-                    },
-                    "idempotencyKey": f"upload:{upload_id}"
-                }
+                json=payload
             )
             response.raise_for_status()
             return response.json()
         except Exception:
             return None
+
 
 # ------------------------------------------------------------------- Views ---
 @csrf_exempt
@@ -274,7 +242,11 @@ def upload_view(request: HttpRequest):
 
     with transaction.atomic():
         upload = Upload.objects.create(
-            user_id=user_id, file_name=file.name, minio_key=key, bytes=getattr(file, "size", 0), status="uploaded"
+            user_id=user_id,
+            file_name=file.name,
+            minio_key=key,
+            bytes=getattr(file, "size", 0),
+            status="uploaded"
         )
         summary = _validate_csv(bucket, key)
         ValidationReport.objects.create(
@@ -293,30 +265,12 @@ def upload_view(request: HttpRequest):
         upload.error = "; ".join(summary["errors"]) if summary["errors"] else None
         upload.save(update_fields=["status", "error", "updated_at"])
 
-    orchestrator_resp = None
-    if upload.status == "validated":
-        orchestrator_resp = _notify_orchestrator(
-            upload.id,
-            upload.minio_key,
-            {
-                "requiredHeadersMissing": summary["required_headers_missing"],
-                "extraHeaders": summary["extra_headers"],
-                "totalRows": summary["total_rows"],
-                "emptyRows": summary["empty_rows"],
-                "encoding": summary["encoding"],
-                "warnings": summary["warnings"],
-                "errors": summary["errors"],
-            }
-        )
-
     resp = {
         "uploadId": str(upload.id),
         "fileName": upload.file_name,
         "minioKey": upload.minio_key,
     }
-    if orchestrator_resp and "runId" in orchestrator_resp:
-        resp["runId"] = orchestrator_resp["runId"]
-
+    
     return JsonResponse(resp)
 
 
@@ -414,16 +368,8 @@ def complete_view(request: HttpRequest):
         upload.error = "; ".join(summary["errors"]) if summary["errors"] else None
         upload.save(update_fields=["status", "error", "updated_at"])
 
-    if upload.status == "validated":
-        _notify_orchestrator(upload.id, upload.minio_key, {
-            "requiredHeadersMissing": summary["required_headers_missing"],
-            "extraHeaders": summary["extra_headers"],
-            "totalRows": summary["total_rows"],
-            "emptyRows": summary["empty_rows"],
-            "encoding": summary["encoding"],
-            "warnings": summary["warnings"],
-            "errors": summary["errors"],
-        })
+    # REMOVED: The call to _notify_orchestrator is no longer here.
+    # It will now be handled by the 'select-template' view.
 
     return JsonResponse({"ok": True})
 

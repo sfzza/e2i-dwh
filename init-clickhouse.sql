@@ -9,3 +9,16 @@ CREATE TABLE IF NOT EXISTS applicants (
     `dob` Nullable(String)
 ) ENGINE = MergeTree()
 ORDER BY applicant_id;
+
+CREATE TABLE e2i_warehouse.applicants
+(
+    id UUID,
+    first_name String,
+    last_name String,
+    email String,
+    phone String,
+    created_at DateTime
+)
+ENGINE = MergeTree()
+PRIMARY KEY id
+ORDER BY created_at;

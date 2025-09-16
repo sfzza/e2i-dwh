@@ -24,6 +24,7 @@ from e2i_api.apps.ingestion.template_views import (
     admin_template_usage_view,
     upload_preview_view,
     upload_set_mappings_view,
+    user_select_template_view, # <-- ADD THIS IMPORT
 )
 
 # Existing reporting views
@@ -70,6 +71,7 @@ urlpatterns = [
     
     # Upload preview and mapping (for users) - These use GET and POST methods.
     path("ingest/uploads/<uuid:upload_id>/preview", upload_preview_view, name="upload-preview"),
+    path("ingest/uploads/<uuid:upload_id>/select-template", csrf_exempt(user_select_template_view), name="upload-select-template"), # <-- ADD THIS LINE
     path("ingest/uploads/<uuid:upload_id>/mappings", csrf_exempt(upload_set_mappings_view), name="upload-mappings"),
     
     # =================== REPORTING ENDPOINTS ===================

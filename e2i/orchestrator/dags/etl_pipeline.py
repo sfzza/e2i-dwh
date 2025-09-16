@@ -1,5 +1,3 @@
-# e2i/orchestrator/dags/etl_pipeline_updated.py
-
 from __future__ import annotations
 
 import logging
@@ -9,8 +7,9 @@ import requests
 import hashlib
 import psycopg2
 import json
-from datetime import timedelta
-from typing import Dict, List, Tuple, Any
+import boto3
+from datetime import datetime
+from typing import Dict, List, Any
 
 from airflow.models.dag import DAG
 from airflow.operators.python import PythonOperator
@@ -37,11 +36,9 @@ MINIO_ARCHIVE_BUCKET = os.getenv("MINIO_ARCHIVE_BUCKET", "archive")
 
 # ClickHouse Configuration
 CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "clickhouse")
-CLICKHOUSE_PORT = os.getenv("CLICKHOUSE_PORT", 9000)
 CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "user")
 CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "password")
-CLICKHOUSE_DB = os.getenv("CLICKHOUSE_DB", "default")
-CLICKHOUSE_TABLE = os.getenv("CLICKHOUSE_TABLE", "applicants")
+CLICKHOUSE_DB = os.getenv("CLICKHOUSE_DB", "e2i_warehouse")
 
 # Tokenization Service Configuration
 TOKENIZATION_ENDPOINT = os.getenv("TOKENIZATION_ENDPOINT", "http://tokenization_service:8004")
@@ -61,7 +58,7 @@ DB_CONFIG = {
 }
 
 # -------------------------------------------------------------------
-# ETL Core Logic
+# Helper Functions
 # -------------------------------------------------------------------
 
 def _get_s3_client():
@@ -75,136 +72,99 @@ def _get_s3_client():
         region_name=MINIO_REGION,
     )
 
-def perform_extract(file_path: str) -> str:
-    """
-    Downloads raw CSV from MinIO, validates headers, and stores it in a local staging location.
-    The header validation is now done by the transform step using template mappings.
-    """
-    os.makedirs(LOCAL_STAGING_DIR, exist_ok=True)
-    client = _get_s3_client()
-    filename = os.path.basename(file_path)
-    staging_path = os.path.join(LOCAL_STAGING_DIR, filename)
-
-    try:
-        logger.info("Downloading s3://%s/%s -> %s", MINIO_LANDING_BUCKET, file_path, staging_path)
-        client.download_file(MINIO_LANDING_BUCKET, file_path, staging_path)
-    except (BotoCoreError, ClientError) as e:
-        logger.exception("Failed to download file from MinIO: %s", e)
-        raise RuntimeError(f"Failed to download {MINIO_LANDING_BUCKET}/{file_path}") from e
-
-    logger.info("Extract completed: %s", staging_path)
-    return staging_path
-
+def get_clickhouse_client():
+    """Returns a ClickHouse client instance."""
+    return Client(
+        host=CLICKHOUSE_HOST,
+        user=CLICKHOUSE_USER,
+        password=CLICKHOUSE_PASSWORD,
+        database=CLICKHOUSE_DB
+    )
 
 def get_upload_mappings(upload_id: str) -> Dict[str, Any]:
     """
-    Fetch column mappings and template info for an upload from the database.
-    Returns the template and column mapping configuration.
+    FIXED: Get the full template configuration for a given upload from the Django database.
+    This query now correctly joins all necessary tables to build the mapping dynamically.
     """
+    conn = None
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cursor = conn.cursor()
 
-        # Get upload template info
-        cursor.execute("""
-            SELECT ut.selected_template_id, dt.name as template_name, dt.target_table
-            FROM upload_template_info ut
-            JOIN data_templates dt ON ut.selected_template_id = dt.id
-            WHERE ut.upload_id = %s
-        """, (upload_id,))
-
-        template_row = cursor.fetchone()
-        if not template_row:
-            raise ValueError(f"No template mapping found for upload {upload_id}")
-
-        template_id, template_name, target_table = template_row
-
-        # Get column mappings with template column info
+        # FIXED: Correctly join all tables to get mappings and the dynamic target_table.
         cursor.execute("""
             SELECT
+                dt.name as template_name,
+                dt.target_table,
                 cm.source_column,
                 tc.name as target_column,
                 tc.data_type,
                 tc.processing_type,
-                tc.processing_config,
                 tc.is_required,
                 tc.max_length,
-                tc.regex_pattern,
                 cm.transform_function,
-                cm.transform_params
+                cm.transform_params,
+                tc.processing_config
             FROM column_mappings cm
+            JOIN uploads u ON cm.upload_id = u.id
+            JOIN data_templates dt ON cm.template_id = dt.id
             JOIN template_columns tc ON cm.target_column_id = tc.id
-            WHERE cm.upload_id = %s
-            ORDER BY tc.order
+            WHERE u.id = %s
         """, (upload_id,))
 
+        rows = cursor.fetchall()
+        if not rows:
+            raise ValueError(f"No column mappings found for upload_id: {upload_id}")
+
+        template_name = rows[0][0]
+        target_table = rows[0][1]
+
         mappings = []
-        for row in cursor.fetchall():
+        for row in rows:
             mappings.append({
-                'source_column': row[0],
-                'target_column': row[1],
-                'data_type': row[2],
-                'processing_type': row[3],
-                'processing_config': row[4] or {},
-                'is_required': row[5],
-                'max_length': row[6],
-                'regex_pattern': row[7],
+                'source_column': row[2],
+                'target_column': row[3],
+                'data_type': row[4],
+                'processing_type': row[5],
+                'is_required': row[6],
+                'max_length': row[7],
                 'transform_function': row[8],
                 'transform_params': row[9] or {},
+                'processing_config': row[10] or {},
             })
 
-        cursor.close()
-        conn.close()
+        logger.info(f"Found template '{template_name}' targeting table '{target_table}' with {len(mappings)} mappings.")
 
         return {
-            'template_id': template_id,
             'template_name': template_name,
-            'target_table': target_table,
+            'target_table': target_table, # This is now DYNAMIC
             'mappings': mappings
         }
 
     except Exception as e:
-        logger.error(f"Failed to get upload mappings: {e}")
+        logger.error(f"Failed to get template mappings for upload {upload_id}: {e}")
         raise
+    finally:
+        if conn:
+            conn.close()
 
 def tokenize_with_service(values: list, data_type: str = "name") -> dict:
-    """
-    Call the tokenization service to tokenize values and store mappings.
-    Returns a mapping of original_value -> token.
-    """
+    """Call the tokenization service to tokenize values."""
     if not values:
         return {}
-
     try:
         response = requests.post(
             f"{TOKENIZATION_ENDPOINT}/api/v1/tokenize",
-            json={
-                "values": values,
-                "data_type": data_type
-            },
-            headers={
-                "Authorization": f"Bearer {TOKENIZATION_API_KEY}",
-                "Content-Type": "application/json"
-            },
+            json={"values": values, "data_type": data_type},
+            headers={"Authorization": f"Bearer {TOKENIZATION_API_KEY}", "Content-Type": "application/json"},
             timeout=30
         )
         response.raise_for_status()
-
         result = response.json()
-        mappings = result.get("mappings", {})
-
-        logger.info(f"Successfully tokenized {len(mappings)} {data_type} values via service")
-        return mappings
-
+        return result.get("mappings", {})
     except requests.exceptions.RequestException as e:
-        logger.error(f"Tokenization service call failed: {e}")
-        # Fallback to local hashing (backward compatibility)
-        logger.info("Falling back to local SHA-256 tokenization")
-        return {
-            value: hashlib.sha256(str(value).encode()).hexdigest()
-            for value in values
-        }
-
+        logger.error(f"Tokenization service call failed, falling back to local hashing: {e}")
+        return {value: hashlib.sha256(str(value).encode()).hexdigest() for value in values}
 
 def apply_transform_function(series: pd.Series, func_name: str, params: Dict) -> pd.Series:
     """Apply specified transformation function to a pandas Series."""
@@ -221,7 +181,7 @@ def apply_transform_function(series: pd.Series, func_name: str, params: Dict) ->
         date_format = params.get('format', '%Y-%m-%d')
         return pd.to_datetime(series, errors='coerce').dt.strftime(date_format)
     elif func_name == 'extract_numbers':
-        return series.astype(str).str.extract(r'(\d+)', expand=False)
+        return series.astype(str).str.extract(r'(\d+)', expand=False).astype(str)
     elif func_name == 'prefix':
         prefix = params.get('prefix', '')
         return prefix + series.astype(str)
@@ -235,7 +195,6 @@ def apply_transform_function(series: pd.Series, func_name: str, params: Dict) ->
     else:
         logger.warning(f"Unknown transform function: {func_name}")
         return series
-
 
 def convert_data_type(series: pd.Series, data_type: str, mapping: Dict) -> pd.Series:
     """Convert series to specified data type with validation."""
@@ -270,249 +229,193 @@ def convert_data_type(series: pd.Series, data_type: str, mapping: Dict) -> pd.Se
     except Exception as e:
         logger.error(f"Data type conversion failed for {data_type}: {e}")
         return series
+    
+def apply_processing(series: pd.Series, mapping: Dict) -> pd.Series:
+    """Apply processing like tokenization or hashing."""
+    processing_type = mapping.get('processing_type', 'none')
 
+    if processing_type == 'tokenize':
+        unique_values = series.dropna().unique().tolist()
+        if not unique_values:
+            return series
+        token_map = tokenize_with_service(unique_values)
+        return series.map(token_map).fillna(series)
 
-def apply_tokenization(series: pd.Series, mapping: Dict) -> pd.Series:
-    """Apply tokenization to sensitive data using the tokenization service."""
+    if processing_type == 'hash':
+        return series.apply(lambda x: hashlib.sha256(str(x).encode()).hexdigest() if pd.notna(x) else x)
 
-    # Get unique non-null values to minimize API calls
-    unique_values = series.dropna().unique().tolist()
-    if not unique_values:
-        return series
-
-    # Determine data type for tokenization service
-    processing_config = mapping.get('processing_config', {})
-    data_type = processing_config.get('token_type', 'general')
-
-    try:
-        # Use existing tokenization service function
-        token_mapping = tokenize_with_service(unique_values, data_type)
-
-        # Apply tokenization mapping
-        return series.map(lambda x: token_mapping.get(x, x) if pd.notna(x) else x)
-
-    except Exception as e:
-        logger.error(f"Tokenization failed: {e}")
-        # Fallback to hashing
-        return apply_hashing(series, mapping)
-
-
-def apply_hashing(series: pd.Series, mapping: Dict) -> pd.Series:
-    """Apply hashing transformation."""
-    import hashlib
-
-    def hash_value(val):
-        if pd.isna(val):
-            return val
-        return hashlib.sha256(str(val).encode()).hexdigest()
-
-    return series.apply(hash_value)
-
-
-def apply_normalization(series: pd.Series, mapping: Dict) -> pd.Series:
-    """Apply normalization rules."""
-    processing_config = mapping.get('processing_config', {})
-
-    result = series.astype(str).str.strip()
-
-    if processing_config.get('lowercase', False):
-        result = result.str.lower()
-
-    if processing_config.get('remove_spaces', False):
-        result = result.str.replace(' ', '')
-
-    if processing_config.get('remove_special_chars', False):
-        result = result.str.replace(r'[^a-zA-Z0-9]', '', regex=True)
-
-    return result
-
+    return series    
 
 def apply_column_transformations(df: pd.DataFrame, mappings: List[Dict]) -> pd.DataFrame:
-    """
-    Apply transformations based on column mappings configuration.
-    """
+    """Apply all defined transformations based on the mapping configuration."""
     result_df = pd.DataFrame()
-
     for mapping in mappings:
         source_col = mapping['source_column']
         target_col = mapping['target_column']
-        data_type = mapping['data_type']
-        processing_type = mapping['processing_type']
-        transform_function = mapping.get('transform_function')
 
         if source_col not in df.columns:
-            if mapping['is_required']:
-                raise ValueError(f"Required source column '{source_col}' not found in file")
-            else:
-                # Create empty column for optional fields
-                result_df[target_col] = None
-                continue
+            if mapping.get('is_required', False):
+                raise ValueError(f"Required source column '{source_col}' not found. Available: {list(df.columns)}")
+            result_df[target_col] = pd.Series(dtype='object')
+            continue
 
-        # Get source data
         source_data = df[source_col].copy()
 
-        # Apply custom transform function if specified
-        if transform_function:
-            source_data = apply_transform_function(source_data, transform_function, mapping.get('transform_params', {}))
+        if mapping.get('transform_function'):
+            source_data = apply_transform_function(source_data, mapping['transform_function'], mapping.get('transform_params', {}))
 
-        # Apply data type conversion
-        source_data = convert_data_type(source_data, data_type, mapping)
-
-        # Apply processing (tokenization, hashing, etc.)
-        if processing_type == 'tokenize':
-            source_data = apply_tokenization(source_data, mapping)
-        elif processing_type == 'hash':
-            source_data = apply_hashing(source_data, mapping)
-        elif processing_type == 'normalize':
-            source_data = apply_normalization(source_data, mapping)
+        source_data = convert_data_type(source_data, mapping['data_type'], mapping)
+        source_data = apply_processing(source_data, mapping)
 
         result_df[target_col] = source_data
-
     return result_df
 
-
-def perform_transform_with_mappings(staging_path: str, upload_id: str) -> str:
-    """
-    Enhanced transform function that uses database-driven column mappings.
-    """
-    os.makedirs(LOCAL_PROCESSED_DIR, exist_ok=True)
-
-    try:
-        logger.info("Reading staging file %s", staging_path)
-        df = pd.read_csv(staging_path)
-
-        # Get mapping configuration from database
-        mapping_config = get_upload_mappings(upload_id)
-        logger.info(f"Using template: {mapping_config['template_name']}")
-
-        # Apply column mappings and transformations
-        processed_df = apply_column_transformations(df, mapping_config['mappings'])
-
-        # Validate required columns
-        required_cols = [m['target_column'] for m in mapping_config['mappings'] if m['is_required']]
-        missing_data = []
-        for col in required_cols:
-            if col in processed_df.columns:
-                null_count = processed_df[col].isnull().sum()
-                if null_count > 0:
-                    missing_data.append(f"{col}: {null_count} null values")
-
-        if missing_data:
-            logger.warning(f"Data quality issues: {missing_data}")
-
-        # Save processed file
-        processed_filename = f"processed_{os.path.basename(staging_path)}"
-        processed_path = os.path.join(LOCAL_PROCESSED_DIR, processed_filename)
-
-        logger.info("Writing processed file to %s", processed_path)
-        processed_df.to_csv(processed_path, index=False)
-
-        # Update database with processing status
-        update_upload_processing_status(upload_id, 'transformed', {
-            'target_table': mapping_config['target_table'],
-            'processed_columns': list(processed_df.columns),
-            'row_count': len(processed_df),
-            'data_quality_issues': missing_data,
-        })
-
-    except Exception as e:
-        logger.exception("Transformation failed for %s", staging_path)
-        update_upload_processing_status(upload_id, 'failed', {'error': str(e)})
-        raise RuntimeError(f"Transform failed for {staging_path}") from e
-
-    logger.info("Transform completed: %s", processed_path)
-    return processed_path
-
-
-def perform_load(processed_path: str, upload_id: str):
-    """
-    Loads the processed dataset into the ClickHouse data warehouse.
-    """
-    try:
-        logger.info("Reading processed file %s", processed_path)
-        df = pd.read_csv(processed_path)
-    except Exception as e:
-        logger.exception("Failed to read processed file %s", processed_path)
-        raise RuntimeError(f"Failed to read {processed_path}") from e
-
-    if df.empty:
-        logger.warning("Processed file %s is empty; nothing to load", processed_path)
-        return
-
-    try:
-        # Get target table from database
-        mapping_config = get_upload_mappings(upload_id)
-        target_table = mapping_config['target_table']
-        
-        client = Client(
-            host=CLICKHOUSE_HOST,
-            port=CLICKHOUSE_PORT,
-            user=CLICKHOUSE_USER,
-            password=CLICKHOUSE_PASSWORD,
-            database=CLICKHOUSE_DB,
-        )
-        cols = list(df.columns)
-        records = df.where(pd.notnull(df), None).to_records(index=False).tolist()
-
-        cols_sql = ", ".join(f"`{c}`" for c in cols)
-        insert_sql = f"INSERT INTO {target_table} ({cols_sql}) VALUES"
-
-        logger.info("Inserting %d rows into ClickHouse table %s", len(records), target_table)
-        client.execute(insert_sql, records)
-
-    except Exception as e:
-        logger.exception("Failed to insert into ClickHouse: %s", e)
-        raise RuntimeError(f"Load failed for {processed_path} into {CLICKHOUSE_TABLE}") from e
-
-    logger.info("Load completed: %d rows into %s", len(records), target_table)
-
-def perform_archive(file_path: str):
-    """
-    Moves the original file from landing zone to archive zone in MinIO.
-    """
-    try:
-        s3 = _get_s3_client()
-        # Ensure the archive bucket exists
-        try:
-            s3.head_bucket(Bucket=MINIO_ARCHIVE_BUCKET)
-        except ClientError:
-            logger.info("Archive bucket '%s' not found. Creating it.", MINIO_ARCHIVE_BUCKET)
-            s3.create_bucket(Bucket=MINIO_ARCHIVE_BUCKET)
-
-        copy_source = {"Bucket": MINIO_LANDING_BUCKET, "Key": file_path}
-        s3.copy(copy_source, MINIO_ARCHIVE_BUCKET, file_path)
-        s3.delete_object(Bucket=MINIO_LANDING_BUCKET, Key=file_path)
-
-        logger.info(f"Archived {file_path} from {MINIO_LANDING_BUCKET} -> {MINIO_ARCHIVE_BUCKET}")
-
-    except (BotoCoreError, ClientError) as e:
-        raise RuntimeError(f"Archive failed for {file_path}: {e}")
-
-def update_upload_processing_status(upload_id: str, status: str, details: Dict):
-    """Update upload status in database with processing details."""
+def update_upload_processing_status(upload_id: str, status: str, details: Dict = None):
+    """Update upload status in the main Django database."""
+    conn = None
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cursor = conn.cursor()
+        error_message = details.get('error') if details else None
 
-        cursor.execute("""
-            UPDATE uploads
-            SET status = %s, updated_at = NOW()
-            WHERE id = %s
-        """, (status, upload_id))
-
-        # Also update validation report with processing details if needed
-        cursor.execute("""
-            UPDATE validation_reports
-            SET stats = %s
-            WHERE upload_id = %s
-        """, (json.dumps(details), upload_id))
-
+        cursor.execute(
+            "UPDATE uploads SET status = %s, error = %s, updated_at = NOW() WHERE id = %s",
+            (status, error_message, upload_id)
+        )
         conn.commit()
-        cursor.close()
-        conn.close()
+        logger.info(f"Updated upload {upload_id} status to '{status}' in Django DB.")
+    except Exception as e:
+        logger.error(f"Failed to update upload status in Django DB: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+def create_table_if_not_exists(client: Client, table_name: str, df: pd.DataFrame):
+    """
+    FIXED: Dynamically creates a ClickHouse table based on the DataFrame's actual dtypes.
+    """
+    logger.info(f"Checking if table '{CLICKHOUSE_DB}.{table_name}' exists...")
+
+    type_mapping = {
+        'int64': 'Int64',
+        'float64': 'Float64',
+        'datetime64[ns]': 'DateTime',
+        'bool': 'UInt8',
+        'object': 'String'
+    }
+
+    columns_defs = []
+    for col_name, dtype in df.dtypes.items():
+        ch_type = type_mapping.get(str(dtype), 'String')
+        columns_defs.append(f"`{col_name}` Nullable({ch_type})")
+
+    columns_str = ',\n    '.join(columns_defs)
+    order_by_key = df.columns[0] if not df.columns.empty else 'id'
+
+    create_sql = f"""
+    CREATE TABLE IF NOT EXISTS {CLICKHOUSE_DB}.`{table_name}`
+    (
+        {columns_str}
+    )
+    ENGINE = MergeTree()
+    ORDER BY `{order_by_key}`
+    SETTINGS allow_nullable_key = 1
+    """
+
+    logger.info(f"Executing CREATE TABLE statement if needed for table '{table_name}'")
+    client.execute(create_sql)
+    logger.info(f"Table '{table_name}' is ready.")
+
+# -------------------------------------------------------------------
+# Core ETL Logic
+# -------------------------------------------------------------------
+
+def perform_extract(file_path: str) -> str:
+    """Downloads raw CSV from MinIO to a local staging location."""
+    os.makedirs(LOCAL_STAGING_DIR, exist_ok=True)
+    client = _get_s3_client()
+    filename = os.path.basename(file_path)
+    staging_path = os.path.join(LOCAL_STAGING_DIR, filename)
+    try:
+        logger.info(f"Downloading s3://{MINIO_LANDING_BUCKET}/{file_path} -> {staging_path}")
+        client.download_file(MINIO_LANDING_BUCKET, file_path, staging_path)
+    except (BotoCoreError, ClientError) as e:
+        raise RuntimeError(f"Failed to download {file_path}") from e
+    return staging_path
+
+def perform_transform(staging_path: str, upload_id: str) -> Dict[str, str]:
+    """
+    CHANGED: Transforms data and returns both the processed file path AND the target table.
+    """
+    os.makedirs(LOCAL_PROCESSED_DIR, exist_ok=True)
+    try:
+        df = pd.read_csv(staging_path)
+        df.columns = df.columns.str.strip()
+
+        mapping_config = get_upload_mappings(upload_id)
+        target_table = mapping_config['target_table']
+
+        processed_df = apply_column_transformations(df, mapping_config['mappings'])
+
+        if processed_df.empty:
+            raise ValueError("Processed DataFrame is empty. Check mappings and source file.")
+
+        processed_filename = f"processed_{os.path.basename(staging_path)}"
+        processed_path = os.path.join(LOCAL_PROCESSED_DIR, processed_filename)
+        processed_df.to_csv(processed_path, index=False)
+
+        logger.info(f"Transform completed. Processed file: {processed_path}, Target table: {target_table}")
+        update_upload_processing_status(upload_id, 'transformed')
+
+        return {'processed_path': processed_path, 'target_table': target_table}
 
     except Exception as e:
-        logger.error(f"Failed to update upload status: {e}")
+        logger.exception(f"Transformation failed for {staging_path}")
+        update_upload_processing_status(upload_id, 'failed', {'error': str(e)})
+        raise
+
+# --- NEW Pipeline Tasks ---
+
+def perform_load(processed_path: str, target_table: str, upload_id: str):
+    """
+    CHANGED: Loads a processed CSV into a dynamically determined ClickHouse table.
+    """
+    logger.info(f"Starting load of {processed_path} into table {target_table}")
+    client = get_clickhouse_client()
+    try:
+        df = pd.read_csv(processed_path)
+        create_table_if_not_exists(client, target_table, df)
+
+        logger.info(f"Inserting {len(df)} rows into ClickHouse table '{target_table}'")
+        client.insert_dataframe(f"INSERT INTO {CLICKHOUSE_DB}.`{target_table}` VALUES", df)
+
+        update_upload_processing_status(upload_id, 'completed')
+        logger.info(f"Successfully loaded data into '{target_table}'")
+
+    except Exception as e:
+        logger.exception(f"Failed to insert data into ClickHouse table '{target_table}'")
+        update_upload_processing_status(upload_id, 'failed', {'error': str(e)})
+        raise
+    finally:
+        if os.path.exists(processed_path):
+            os.remove(processed_path)
+
+def perform_archive(file_path: str):
+    """Moves the original file from landing to archive bucket in MinIO."""
+    try:
+        s3 = _get_s3_client()
+        copy_source = {"Bucket": MINIO_LANDING_BUCKET, "Key": file_path}
+
+        try:
+            s3.head_bucket(Bucket=MINIO_ARCHIVE_BUCKET)
+        except ClientError:
+            s3.create_bucket(Bucket=MINIO_ARCHIVE_BUCKET)
+
+        s3.copy(copy_source, MINIO_ARCHIVE_BUCKET, file_path)
+        s3.delete_object(Bucket=MINIO_LANDING_BUCKET, Key=file_path)
+        logger.info(f"Archived {file_path} to {MINIO_ARCHIVE_BUCKET}")
+    except (BotoCoreError, ClientError) as e:
+        raise RuntimeError(f"Archive failed for {file_path}: {e}")
 
 
 # -------------------------------------------------------------------
@@ -520,50 +423,28 @@ def update_upload_processing_status(upload_id: str, status: str, details: Dict):
 # -------------------------------------------------------------------
 
 def run_extract(**kwargs):
-    conf = kwargs["dag_run"].conf or {}
+    conf = kwargs["dag_run"].conf
     minio_key = conf.get("minioKey")
-    if not minio_key:
-        raise ValueError("Missing 'minioKey' in DAG run configuration.")
     return perform_extract(file_path=minio_key)
 
-
-def run_transform_with_mappings(**kwargs):
-    """Updated transform task that uses column mappings."""
+def run_transform(**kwargs):
     ti = kwargs["ti"]
     staging_path = ti.xcom_pull(task_ids="extract")
-    if not staging_path:
-        raise ValueError("Could not find staged file path from extract task.")
-
-    # Get upload_id from DAG run configuration
-    conf = kwargs["dag_run"].conf or {}
-    upload_id = conf.get("uploadId")
-    if not upload_id:
-        raise ValueError("Missing 'uploadId' in DAG run configuration.")
-
-    return perform_transform_with_mappings(staging_path=staging_path, upload_id=upload_id)
+    upload_id = kwargs["dag_run"].conf.get("uploadId")
+    return perform_transform(staging_path=staging_path, upload_id=upload_id)
 
 def run_load(**kwargs):
     ti = kwargs["ti"]
-    processed_path = ti.xcom_pull(task_ids="transform")
-    if not processed_path:
-        raise ValueError("Could not find processed file path from transform task.")
-    
-    # Get upload_id from DAG run configuration
-    conf = kwargs["dag_run"].conf or {}
-    upload_id = conf.get("uploadId")
-    if not upload_id:
-        raise ValueError("Missing 'uploadId' in DAG run configuration.")
-
-    perform_load(processed_path=processed_path, upload_id=upload_id)
+    transform_output = ti.xcom_pull(task_ids="transform")
+    processed_path = transform_output['processed_path']
+    target_table = transform_output['target_table']
+    upload_id = kwargs["dag_run"].conf.get("uploadId")
+    perform_load(processed_path=processed_path, target_table=target_table, upload_id=upload_id)
 
 
 def run_archive(**kwargs):
-    conf = kwargs["dag_run"].conf or {}
-    minio_key = conf.get("minioKey")
-    if not minio_key:
-        raise ValueError("Missing 'minioKey' in DAG run configuration.")
+    minio_key = kwargs["dag_run"].conf.get("minioKey")
     perform_archive(file_path=minio_key)
-
 # -------------------------------------------------------------------
 # DAG Definition
 # -------------------------------------------------------------------
@@ -571,45 +452,20 @@ def run_archive(**kwargs):
 with DAG(
     dag_id="etl_pipeline",
     start_date=days_ago(1),
-    schedule=None,
+    schedule_interval=None,
     catchup=False,
     doc_md="""
-    ## ETL Pipeline with Production Tokenization Service and Dynamic Mappings
-    This DAG processes CSV files and tokenizes sensitive data using a secure tokenization service and database-driven column mappings.
-    **Trigger with configuration:** `{"minioKey": "your-file-name.csv", "uploadId": "your-upload-uuid"}`
-
-    **Process:**
-    1. Extract: Download CSV from MinIO.
-    2. Transform: Fetches column mappings from the database, cleans and processes data based on the defined rules, and tokenizes PII.
-    3. Load: Inserts the processed data into the appropriate ClickHouse table, which is also determined by the template.
-    4. Archive: Moves the original file to the archive bucket.
-
-    **Features:**
-    - Dynamic column mapping and transformation
-    - Database-driven data types and processing rules
-    - Secure tokenization service integration
-    - Handles data quality issues like missing required columns
+    ## Dynamic ETL Pipeline (Corrected)
+    This DAG processes any CSV file based on a user-defined template.
+    It fetches mappings and the target table name from a database, dynamically
+    creates the table in ClickHouse if it doesn't exist, and loads the data.
+    **Trigger with config:** `{"minioKey": "path/to/file.csv", "uploadId": "upload-uuid"}`
     """,
-    tags=["etl", "minio", "clickhouse", "tokenization", "dynamic", "production"],
+    tags=["etl", "dynamic", "template-based"],
 ) as dag:
-    extract_task = PythonOperator(
-        task_id="extract",
-        python_callable=run_extract,
-    )
-
-    transform_task = PythonOperator(
-        task_id="transform",
-        python_callable=run_transform_with_mappings,
-    )
-
-    load_task = PythonOperator(
-        task_id="load",
-        python_callable=run_load,
-    )
-
-    archive_task = PythonOperator(
-        task_id="archive",
-        python_callable=run_archive,
-    )
+    extract_task = PythonOperator(task_id="extract", python_callable=run_extract)
+    transform_task = PythonOperator(task_id="transform", python_callable=run_transform)
+    load_task = PythonOperator(task_id="load", python_callable=run_load)
+    archive_task = PythonOperator(task_id="archive", python_callable=run_archive)
 
     extract_task >> transform_task >> load_task >> archive_task
