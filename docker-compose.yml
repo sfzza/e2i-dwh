@@ -142,10 +142,12 @@ services:
     volumes:
       - ./e2i/orchestrator:/app
     environment:
+      - DATABASE_URL=postgresql://e2i_user:e2i_pass@orchestrator_postgres:5432/e2i_db
       - USE_LOCAL_WORKER=false
       - AIRFLOW__BASE_URL=http://airflow-webserver:8080
       - AIRFLOW__USERNAME=airflow
       - AIRFLOW__PASSWORD=airflow
+      - DISABLE_HMAC=true
     depends_on:
       orchestrator_postgres:
         condition: service_healthy

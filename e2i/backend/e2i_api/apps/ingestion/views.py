@@ -198,14 +198,14 @@ def _notify_orchestrator(upload_id: uuid.UUID, minio_key: str, validation_summar
                 payload["params"]["templateId"] = str(template_id)
             
             response = client.post(
-                f"{ORCH_URL}/pipelines/run",
+                f"{ORCH_URL}/pipelines/run",  # Add /v1 prefix
                 json=payload
             )
             response.raise_for_status()
             return response.json()
-        except Exception:
+        except Exception as e:
+            print(f"Orchestrator error: {e}")  # Add logging
             return None
-
 
 # ------------------------------------------------------------------- Views ---
 @csrf_exempt
