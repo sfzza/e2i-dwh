@@ -228,6 +228,21 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+  
+  # Redis service for caching
+  redis:
+    image: redis:7-alpine
+    container_name: e2i_redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   # Django service
   django:
@@ -272,6 +287,8 @@ services:
       clickhouse:
         condition: service_healthy
       tokenization_service:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - "8001:8001"
@@ -361,3 +378,4 @@ volumes:
   metabase_data:
   metabase_pgdata:
   tokenization_pgdata:
+  redis_data:

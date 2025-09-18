@@ -1,8 +1,16 @@
-# e2i_api/urls.py - Updated to include template management
+# e2i_api/urls.py - Updated to include authentication endpoints
 
 from django.contrib import admin
 from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
+
+# Authentication views
+from e2i_api.apps.common.auth import (
+    login_view,
+    logout_view,
+    generate_api_key_view,
+    user_profile_view,
+)
 
 # Existing ingestion views
 from e2i_api.apps.ingestion.views import (
@@ -12,19 +20,18 @@ from e2i_api.apps.ingestion.views import (
     upload_status_view,
 )
 
-# New template management views
+# Template management views
 from e2i_api.apps.ingestion.template_views import (
     template_list_view,
     template_create_from_upload_view,
     template_edit_view,
     template_activate_view,
-    # New imports for deletion and usage views
     admin_delete_template_column_view,
     admin_delete_template_view,
     admin_template_usage_view,
     upload_preview_view,
     upload_set_mappings_view,
-    user_select_template_view, # <-- ADD THIS IMPORT
+    user_select_template_view,
 )
 
 # Existing reporting views
@@ -46,33 +53,40 @@ urlpatterns = [
     # Django Admin
     path("admin/", admin.site.urls),
 
+    # =================== AUTHENTICATION ENDPOINTS ===================
+    
+    path("auth/login", login_view, name="auth-login"),
+    path("auth/logout", logout_view, name="auth-logout"),
+    path("auth/generate-api-key", generate_api_key_view, name="auth-generate-api-key"),
+    path("auth/profile", user_profile_view, name="auth-profile"),
+
     # =================== INGESTION ENDPOINTS ===================
     
-    # File Upload (existing) - These handle POST requests so they need to be exempted.
-    path("ingest/upload", csrf_exempt(upload_view), name="upload"),
-    path("ingest/presign", csrf_exempt(presign_view), name="presign"),
-    path("ingest/complete", csrf_exempt(complete_view), name="complete"),
+    # File Upload (authentication required)
+    path("ingest/upload", upload_view, name="upload"),
+    path("ingest/presign", presign_view, name="presign"),
+    path("ingest/complete", complete_view, name="complete"),
     path("ingest/uploads/<uuid:upload_id>/status", upload_status_view, name="upload-status"),
     
     # =================== TEMPLATE MANAGEMENT ===================
     
-    # Template CRUD (Admin only) - These use POST, PUT, and DELETE methods.
+    # Template CRUD (Admin only except for list which is accessible to all authenticated users)
     path("templates/", template_list_view, name="template-list"),
-    path("templates/create", csrf_exempt(template_create_from_upload_view), name="template-create"),
-    path("templates/<uuid:template_id>", csrf_exempt(template_edit_view), name="template-edit"),
-    path("templates/<uuid:template_id>/activate", csrf_exempt(template_activate_view), name="template-activate"),
+    path("templates/create", template_create_from_upload_view, name="template-create"),
+    path("templates/<uuid:template_id>", template_edit_view, name="template-edit"),
+    path("templates/<uuid:template_id>/activate", template_activate_view, name="template-activate"),
     
-    # New deletion and usage endpoints - These use GET and DELETE methods.
+    # Admin-only endpoints
     path("templates/<uuid:template_id>/usage", admin_template_usage_view, name="template-usage"),
-    path("templates/<uuid:template_id>/delete", csrf_exempt(admin_delete_template_view), name="template-delete"),
-    path("templates/<uuid:template_id>/columns/<uuid:mapping_id>/delete", csrf_exempt(admin_delete_template_column_view), name="template-column-delete"),
+    path("templates/<uuid:template_id>/delete", admin_delete_template_view, name="template-delete"),
+    path("templates/<uuid:template_id>/columns/<uuid:mapping_id>/delete", admin_delete_template_column_view, name="template-column-delete"),
     
     # =================== COLUMN MAPPING ===================
     
-    # Upload preview and mapping (for users) - These use GET and POST methods.
+    # Upload preview and mapping (for authenticated users)
     path("ingest/uploads/<uuid:upload_id>/preview", upload_preview_view, name="upload-preview"),
-    path("ingest/uploads/<uuid:upload_id>/select-template", csrf_exempt(user_select_template_view), name="upload-select-template"), # <-- ADD THIS LINE
-    path("ingest/uploads/<uuid:upload_id>/mappings", csrf_exempt(upload_set_mappings_view), name="upload-mappings"),
+    path("ingest/uploads/<uuid:upload_id>/select-template", user_select_template_view, name="upload-select-template"),
+    path("ingest/uploads/<uuid:upload_id>/mappings", upload_set_mappings_view, name="upload-mappings"),
     
     # =================== REPORTING ENDPOINTS ===================
     

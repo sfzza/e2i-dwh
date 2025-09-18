@@ -1,3 +1,5 @@
+# e2i_api/apps/ingestion/template_views.py - Updated with authentication
+
 import csv
 import io
 import json
@@ -18,11 +20,19 @@ from .models import (
     UploadExtension,
 )
 from .views import (
-    _current_user_id,
     _get_minio_client,
     _bucket_name,
     _json_error,
     _notify_orchestrator,
+)
+
+# Import authentication decorators
+from e2i_api.apps.common.auth import (
+    require_auth, 
+    admin_required, 
+    user_access_required,
+    get_current_user,
+    get_current_user_id
 )
 
 logger = logging.getLogger(__name__)
@@ -31,9 +41,9 @@ logger = logging.getLogger(__name__)
 # ADMIN: Template Management
 # ===================================================================
 
-@csrf_exempt
+@user_access_required  # Both admin and user can list templates
 def template_list_view(request):
-    """List all active templates for selection."""
+    """List all active templates for selection. Accessible by both admin and user."""
     if request.method != "GET":
         return HttpResponseNotAllowed(["GET"])
 
@@ -63,6 +73,7 @@ def template_list_view(request):
 
 
 @csrf_exempt
+@admin_required  # Only admin can create templates
 def template_create_from_upload_view(request):
     """Admin: Create a new template from an existing file upload."""
     if request.method != "POST":
@@ -80,7 +91,7 @@ def template_create_from_upload_view(request):
         return _json_error("BAD_REQUEST", "upload_id, name, and target_table are required")
 
     upload = get_object_or_404(Upload, id=upload_id)
-    user_id = _current_user_id(request)
+    user_id = get_current_user_id(request)
 
     try:
         client = _get_minio_client()
@@ -123,6 +134,7 @@ def template_create_from_upload_view(request):
 
 
 @csrf_exempt
+@admin_required  # Only admin can edit templates
 def template_edit_view(request, template_id):
     """Admin: Get, update, or delete a template definition."""
     template = get_object_or_404(DataTemplate.objects.prefetch_related('columns'), id=template_id)
@@ -160,6 +172,7 @@ def template_edit_view(request, template_id):
 
 
 @csrf_exempt
+@admin_required  # Only admin can activate templates
 def template_activate_view(request, template_id):
     """Admin: Activate a template to make it available for users."""
     if request.method != "POST":
@@ -174,12 +187,19 @@ def template_activate_view(request, template_id):
 # USER: Mapping Workflow
 # ===================================================================
 
-@csrf_exempt
+@user_access_required  # Both admin and user can preview uploads
 def upload_preview_view(request, upload_id):
     """User: Get a preview of an uploaded file for the mapping UI."""
     if request.method != "GET":
         return HttpResponseNotAllowed(["GET"])
+    
     upload = get_object_or_404(Upload, id=upload_id)
+    
+    # Check if user owns this upload or is admin
+    current_user = get_current_user(request)
+    if str(upload.user_id) != str(current_user.id) and current_user.role != 'admin':
+        return _json_error("FORBIDDEN", "Access denied", 403)
+    
     try:
         client = _get_minio_client()
         bucket = _bucket_name()
@@ -207,9 +227,10 @@ def upload_preview_view(request, upload_id):
 
 
 @csrf_exempt
+@user_access_required  # Both admin and user can select templates
 def user_select_template_view(request, upload_id):
     """
-    CORRECTED: User selects a template for their upload. DOES NOT trigger the pipeline.
+    User selects a template for their upload. DOES NOT trigger the pipeline.
     """
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
@@ -224,6 +245,12 @@ def user_select_template_view(request, upload_id):
         return _json_error("BAD_REQUEST", "template_id is required")
 
     upload = get_object_or_404(Upload, id=upload_id)
+    
+    # Check if user owns this upload or is admin
+    current_user = get_current_user(request)
+    if str(upload.user_id) != str(current_user.id) and current_user.role != 'admin':
+        return _json_error("FORBIDDEN", "Access denied", 403)
+    
     template = get_object_or_404(DataTemplate, id=template_id, status="active")
 
     UploadExtension.objects.update_or_create(
@@ -240,9 +267,10 @@ def user_select_template_view(request, upload_id):
 
 
 @csrf_exempt
+@user_access_required  # Both admin and user can set mappings
 def upload_set_mappings_view(request, upload_id):
     """
-    CORRECTED: User sets column mappings for an upload AND triggers the Airflow pipeline.
+    User sets column mappings for an upload AND triggers the Airflow pipeline.
     """
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
@@ -261,6 +289,11 @@ def upload_set_mappings_view(request, upload_id):
             raise ValueError("No template selected for this upload.")
     except (Upload.DoesNotExist, UploadExtension.DoesNotExist, ValueError) as e:
         return _json_error("BAD_REQUEST", f"Upload not found or template not selected: {e}", 400)
+
+    # Check if user owns this upload or is admin
+    current_user = get_current_user(request)
+    if str(upload.user_id) != str(current_user.id) and current_user.role != 'admin':
+        return _json_error("FORBIDDEN", "Access denied", 403)
 
     with transaction.atomic():
         # Clear previous mappings for this upload
@@ -316,6 +349,7 @@ def upload_set_mappings_view(request, upload_id):
 # ===================================================================
 
 @csrf_exempt
+@admin_required  # Only admin can delete template columns
 def admin_delete_template_column_view(request, template_id, column_id):
     """Admin: Delete a specific column from a template."""
     if request.method != "DELETE":
@@ -333,6 +367,7 @@ def admin_delete_template_column_view(request, template_id, column_id):
 
 
 @csrf_exempt
+@admin_required  # Only admin can delete templates
 def admin_delete_template_view(request, template_id):
     """Admin: Delete an entire template."""
     if request.method != "DELETE":
@@ -348,7 +383,7 @@ def admin_delete_template_view(request, template_id):
     return JsonResponse({"success": True, "message": f"Template '{template_name}' deleted."})
 
 
-@csrf_exempt
+@admin_required  # Only admin can check template usage
 def admin_template_usage_view(request, template_id):
     """Admin: Check a template's usage statistics."""
     if request.method != "GET":

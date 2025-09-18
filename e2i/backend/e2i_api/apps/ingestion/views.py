@@ -1,4 +1,5 @@
-# The top part of the file remains unchanged
+# e2i_api/apps/ingestion/views.py - Updated with authentication
+
 from django.shortcuts import render
 from django.http import JsonResponse, HttpRequest, HttpResponseNotAllowed
 from django.views.decorators.csrf import csrf_exempt
@@ -17,6 +18,15 @@ import uuid
 import httpx
 
 from .models import Upload, ValidationReport
+
+# Import authentication decorators
+from e2i_api.apps.common.auth import (
+    require_auth, 
+    admin_required, 
+    user_access_required,
+    get_current_user,
+    get_current_user_id
+)
 
 try:
     from minio import Minio
@@ -98,18 +108,10 @@ def _build_object_key(user_id: uuid.UUID, filename: str) -> str:
     return f"{today.year}/{today.month:02d}/{today.day:02d}/{uuid.uuid4()}_{safe}"
 
 
+# UPDATED: Use the new authentication system
 def _current_user_id(req: HttpRequest) -> uuid.UUID:
-    u = getattr(req, "user", None)
-    if getattr(u, "is_authenticated", False) and getattr(u, "id", None):
-        try:
-            return uuid.UUID(str(u.id))
-        except Exception:
-            pass
-    hdr = req.headers.get("X-User-Id") or req.META.get("HTTP_X_USER_ID")
-    try:
-        return uuid.UUID(hdr) if hdr else uuid.UUID(int=0)
-    except Exception:
-        return uuid.UUID(int=0)
+    """Get current user ID - updated to use new auth system"""
+    return get_current_user_id(req) or uuid.UUID(int=0)
 
 
 def _detect_encoding(bucket: str, key: str, byte_limit: int = 65536) -> str:
@@ -207,9 +209,11 @@ def _notify_orchestrator(upload_id: uuid.UUID, minio_key: str, validation_summar
 
 # ------------------------------------------------------------------- Views ---
 @csrf_exempt
+@user_access_required  # Both admin and user can upload
 def upload_view(request: HttpRequest):
     """
     Handle direct multipart uploads to Django -> MinIO.
+    Requires authentication (admin or user).
     """
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
@@ -275,9 +279,11 @@ def upload_view(request: HttpRequest):
 
 
 @csrf_exempt
+@user_access_required  # Both admin and user can use presigned uploads
 def presign_view(request: HttpRequest):
     """
     Generate a presigned URL for direct-to-MinIO upload.
+    Requires authentication (admin or user).
     """
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
@@ -314,9 +320,11 @@ def presign_view(request: HttpRequest):
 
 
 @csrf_exempt
+@user_access_required  # Both admin and user can complete uploads
 def complete_view(request: HttpRequest):
     """
     Mark a presigned upload as complete and run validation.
+    Requires authentication (admin or user).
     """
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
@@ -336,6 +344,11 @@ def complete_view(request: HttpRequest):
         upload = Upload.objects.get(id=upload_id, minio_key=minio_key)
     except Upload.DoesNotExist:
         return _json_error("NOT_FOUND", "Upload not found", 404)
+
+    # Check if user owns this upload or is admin
+    current_user = get_current_user(request)
+    if str(upload.user_id) != str(current_user.id) and current_user.role != 'admin':
+        return _json_error("FORBIDDEN", "Access denied", 403)
 
     client = _get_minio_client()
     bucket = _bucket_name()
@@ -368,9 +381,6 @@ def complete_view(request: HttpRequest):
         upload.error = "; ".join(summary["errors"]) if summary["errors"] else None
         upload.save(update_fields=["status", "error", "updated_at"])
 
-    # REMOVED: The call to _notify_orchestrator is no longer here.
-    # It will now be handled by the 'select-template' view.
-
     return JsonResponse({"ok": True})
 
 
@@ -397,10 +407,11 @@ def _serialize_upload(upload: Upload) -> dict:
     return data
 
 
-@csrf_exempt
+@user_access_required  # Both admin and user can check status
 def upload_status_view(request: HttpRequest, upload_id: str):
     """
     Return the status (and validation report if present) for a given upload.
+    Requires authentication (admin or user).
     """
     if request.method != "GET":
         return HttpResponseNotAllowed(["GET"])
@@ -408,4 +419,10 @@ def upload_status_view(request: HttpRequest, upload_id: str):
         upload = Upload.objects.select_related("validation").get(id=upload_id)
     except Upload.DoesNotExist:
         return _json_error("NOT_FOUND", "Upload not found", 404)
+    
+    # Check if user owns this upload or is admin
+    current_user = get_current_user(request)
+    if str(upload.user_id) != str(current_user.id) and current_user.role != 'admin':
+        return _json_error("FORBIDDEN", "Access denied", 403)
+        
     return JsonResponse(_serialize_upload(upload))
