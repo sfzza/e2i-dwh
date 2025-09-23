@@ -24,8 +24,10 @@ from e2i_api.apps.ingestion.views import (
 from e2i_api.apps.ingestion.template_views import (
     template_list_view,
     template_create_from_upload_view,
+    template_detail_view,
     template_edit_view,
     template_activate_view,
+    template_deactivate_view,
     admin_delete_template_column_view,
     admin_delete_template_view,
     admin_template_usage_view,
@@ -73,8 +75,10 @@ urlpatterns = [
     # Template CRUD (Admin only except for list which is accessible to all authenticated users)
     path("templates/", template_list_view, name="template-list"),
     path("templates/create", template_create_from_upload_view, name="template-create"),
+    path("templates/<uuid:template_id>/details", template_detail_view, name="template-detail"),
     path("templates/<uuid:template_id>", template_edit_view, name="template-edit"),
     path("templates/<uuid:template_id>/activate", template_activate_view, name="template-activate"),
+     path('templates/<uuid:template_id>/deactivate', template_deactivate_view, name='template-deactivate'),
     
     # Admin-only endpoints
     path("templates/<uuid:template_id>/usage", admin_template_usage_view, name="template-usage"),

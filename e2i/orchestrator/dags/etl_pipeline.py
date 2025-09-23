@@ -126,6 +126,7 @@ def get_upload_mappings(upload_id: str) -> Dict[str, Any]:
         mappings = []
         for row in rows:
             merged_from_columns = row[11]  # This could be None or a JSON array
+            transform_params = row[9] or {}
             
             # Parse merged_from_columns if it exists
             if merged_from_columns:
@@ -135,6 +136,12 @@ def get_upload_mappings(upload_id: str) -> Dict[str, Any]:
                 except (json.JSONDecodeError, TypeError):
                     merged_from_columns = None
             
+            # Check if this is a user-mapped merged column (from transform_params)
+            if transform_params.get('is_merged') and transform_params.get('merged_sources'):
+                # This is a user-mapped merged column, use the sources from transform_params
+                merged_from_columns = transform_params['merged_sources']
+                logger.info(f"Found user-mapped merged column '{row[3]}' with sources: {merged_from_columns}")
+            
             mappings.append({
                 'source_column': row[2],
                 'target_column': row[3],
@@ -143,7 +150,7 @@ def get_upload_mappings(upload_id: str) -> Dict[str, Any]:
                 'is_required': row[6],
                 'max_length': row[7],
                 'transform_function': row[8],
-                'transform_params': row[9] or {},
+                'transform_params': transform_params,
                 'processing_config': row[10] or {},
                 'merged_from_columns': merged_from_columns,
             })
@@ -225,7 +232,11 @@ def convert_data_type(series: pd.Series, data_type: str, mapping: Dict) -> pd.Se
             return result
 
         elif data_type == 'integer':
-            return pd.to_numeric(series, errors='coerce').astype('Int64')
+            # Convert to numeric first, handling errors
+            numeric_series = pd.to_numeric(series, errors='coerce')
+            # For ClickHouse compatibility, convert NaN to None and use object dtype
+            # This allows ClickHouse to handle nullable integers properly
+            return numeric_series.where(pd.notna(numeric_series), None).astype('object')
 
         elif data_type == 'float':
             return pd.to_numeric(series, errors='coerce')
@@ -339,7 +350,16 @@ def merge_columns(df: pd.DataFrame, columns_to_merge: List[str], separator: str 
     """
     ADDED: Merge multiple columns into a single column.
     """
+    logger.info(f"=== MERGE COLUMNS DEBUG ===")
+    logger.info(f"DataFrame columns: {list(df.columns)}")
+    logger.info(f"Columns to merge: {columns_to_merge}")
+    logger.info(f"DataFrame shape: {df.shape}")
+    
     available_columns = [col for col in columns_to_merge if col in df.columns]
+    missing_columns = [col for col in columns_to_merge if col not in df.columns]
+    
+    logger.info(f"Available columns for merging: {available_columns}")
+    logger.info(f"Missing columns: {missing_columns}")
     
     if not available_columns:
         logger.warning(f"None of the columns to merge {columns_to_merge} are available in the data")
@@ -347,9 +367,16 @@ def merge_columns(df: pd.DataFrame, columns_to_merge: List[str], separator: str 
     
     if len(available_columns) == 1:
         logger.info(f"Only one column '{available_columns[0]}' available for merging, using it directly")
-        return df[available_columns[0]].astype(str)
+        result = df[available_columns[0]].astype(str)
+        logger.info(f"Single column merge result sample: {result.head(3).tolist()}")
+        return result
     
     logger.info(f"Merging columns: {available_columns}")
+    
+    # Show sample data from columns being merged
+    for col in available_columns:
+        sample_data = df[col].head(3).tolist()
+        logger.info(f"Sample data from '{col}': {sample_data}")
     
     # Merge available columns, skipping null values
     merged_series = df[available_columns].apply(
@@ -360,6 +387,9 @@ def merge_columns(df: pd.DataFrame, columns_to_merge: List[str], separator: str 
     
     # Replace empty strings with None
     merged_series = merged_series.apply(lambda x: None if x == '' else x)
+    
+    logger.info(f"Merged result sample: {merged_series.head(3).tolist()}")
+    logger.info(f"=== END MERGE COLUMNS DEBUG ===")
     
     return merged_series
 
@@ -375,12 +405,27 @@ def apply_column_transformations(df: pd.DataFrame, mappings: List[Dict]) -> pd.D
         target_col = mapping['target_column']
         merged_from_columns = mapping.get('merged_from_columns')
 
+        logger.info(f"=== PROCESSING MAPPING ===")
+        logger.info(f"Target column: {target_col}")
+        logger.info(f"Source column: {source_col}")
+        logger.info(f"Merged from columns: {merged_from_columns}")
+        logger.info(f"Transform params: {mapping.get('transform_params', {})}")
+
         # Check if this is a column merge operation
         if merged_from_columns and isinstance(merged_from_columns, list):
             logger.info(f"Processing merged column '{target_col}' from {merged_from_columns}")
             
-            # Create merged column
-            source_data = merge_columns(df, merged_from_columns)
+            # For merged columns, always merge the specified columns
+            # Check if all required columns exist in the data
+            missing_cols = [col for col in merged_from_columns if col not in df.columns]
+            if missing_cols:
+                logger.warning(f"Some columns for merging are missing: {missing_cols}. Available columns: {list(df.columns)}")
+                # Create empty series if columns are missing
+                source_data = pd.Series([None] * len(df), dtype='object')
+            else:
+                # All columns exist, perform the merge
+                logger.info(f"Merging columns: {merged_from_columns}")
+                source_data = merge_columns(df, merged_from_columns)
             
         elif source_col not in df.columns:
             logger.warning(f"Source column '{source_col}' not found in data. Available columns: {list(df.columns)}")
@@ -451,9 +496,10 @@ def update_upload_processing_status(upload_id: str, status: str, details: Dict =
         if conn:
             conn.close()
 
-def create_table_if_not_exists(client: Client, table_name: str, df: pd.DataFrame):
+def create_table_if_not_exists(client: Client, table_name: str, df: pd.DataFrame, upload_id: str = None):
     """
     ENHANCED: Dynamically creates a ClickHouse table based on the DataFrame's actual dtypes.
+    Also adds missing columns to existing tables. Now includes ALL template columns including merged ones.
     """
     logger.info(f"Checking if table '{CLICKHOUSE_DB}.{table_name}' exists...")
 
@@ -466,14 +512,94 @@ def create_table_if_not_exists(client: Client, table_name: str, df: pd.DataFrame
         'object': 'String'
     }
 
+    # First, try to get existing table structure
+    existing_columns = set()
+    try:
+        result = client.execute(f"DESCRIBE {CLICKHOUSE_DB}.`{table_name}`")
+        existing_columns = {row[0] for row in result}
+        logger.info(f"Existing table columns: {existing_columns}")
+    except Exception as e:
+        logger.info(f"Table doesn't exist yet or error getting structure: {e}")
+        existing_columns = set()
+
+    # Get ALL template columns including merged ones from the database
+    all_template_columns = set()
+    if upload_id:
+        try:
+            conn = psycopg2.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+            
+            # Get all template columns for this upload
+            cursor.execute("""
+                SELECT tc.name, tc.data_type
+                FROM column_mappings cm
+                JOIN uploads u ON cm.upload_id = u.id
+                JOIN template_columns tc ON cm.target_column_id = tc.id
+                WHERE u.id = %s
+            """, (upload_id,))
+            
+            template_rows = cursor.fetchall()
+            for row in template_rows:
+                col_name, data_type = row
+                all_template_columns.add((col_name, data_type))
+            
+            conn.close()
+            logger.info(f"Found {len(all_template_columns)} template columns: {[col[0] for col in all_template_columns]}")
+        except Exception as e:
+            logger.warning(f"Could not get template columns from database: {e}")
+            all_template_columns = set()
+
+    # Prepare column definitions for all DataFrame columns
     columns_defs = []
+    new_columns = []
+    
+    # First, add DataFrame columns
     for col_name, dtype in df.dtypes.items():
-        ch_type = type_mapping.get(str(dtype), 'String')
+        # Check if this is an integer column stored as object (with None values)
+        if str(dtype) == 'object':
+            # Check if the column contains integers or None values
+            sample_values = df[col_name].dropna().head(10)
+            if not sample_values.empty and all(isinstance(val, (int, float)) and not isinstance(val, bool) for val in sample_values):
+                # This is likely an integer column with None values
+                ch_type = 'Int64'
+            else:
+                ch_type = 'String'
+        else:
+            ch_type = type_mapping.get(str(dtype), 'String')
+        
         columns_defs.append(f"`{col_name}` Nullable({ch_type})")
+        
+        # Track new columns that need to be added
+        if col_name not in existing_columns:
+            new_columns.append((col_name, ch_type))
+    
+    # Then, add template columns that are not in the DataFrame (like merged columns)
+    for col_name, data_type in all_template_columns:
+        if col_name not in df.columns and col_name not in existing_columns:
+            # Map template data type to ClickHouse type
+            if data_type == 'integer':
+                ch_type = 'Int64'
+            elif data_type == 'float':
+                ch_type = 'Float64'
+            elif data_type in ['datetime', 'date']:
+                ch_type = 'DateTime'
+            elif data_type == 'boolean':
+                ch_type = 'UInt8'
+            else:  # string or unknown
+                ch_type = 'String'
+            
+            columns_defs.append(f"`{col_name}` Nullable({ch_type})")
+            new_columns.append((col_name, ch_type))
+            logger.info(f"Adding template column '{col_name}' ({ch_type}) that's not in DataFrame")
 
     columns_str = ',\n    '.join(columns_defs)
     order_by_key = df.columns[0] if not df.columns.empty else 'id'
 
+    logger.info(f"Creating table with columns: {[col.split('`')[1] for col in columns_defs]}")
+    logger.info(f"DataFrame columns: {list(df.columns)}")
+    logger.info(f"New columns to add: {[col[0] for col in new_columns]}")
+
+    # Create table if it doesn't exist
     create_sql = f"""
     CREATE TABLE IF NOT EXISTS {CLICKHOUSE_DB}.`{table_name}`
     (
@@ -485,12 +611,25 @@ def create_table_if_not_exists(client: Client, table_name: str, df: pd.DataFrame
     """
 
     logger.info(f"Executing CREATE TABLE statement if needed for table '{table_name}'")
+    logger.info(f"CREATE SQL: {create_sql}")
     try:
         client.execute(create_sql)
         logger.info(f"Table '{table_name}' is ready.")
     except Exception as e:
         logger.error(f"Failed to create table '{table_name}': {e}")
         raise
+
+    # Add missing columns to existing table
+    for col_name, ch_type in new_columns:
+        try:
+            alter_sql = f"ALTER TABLE {CLICKHOUSE_DB}.`{table_name}` ADD COLUMN `{col_name}` Nullable({ch_type})"
+            logger.info(f"Adding missing column: {alter_sql}")
+            client.execute(alter_sql)
+            logger.info(f"Successfully added column '{col_name}' to table '{table_name}'")
+        except Exception as e:
+            logger.error(f"Failed to add column '{col_name}' to table '{table_name}': {e}")
+            # Don't raise here - column might already exist or there might be other issues
+            # The main insertion will fail with a clear error if there are still issues
 
 # -------------------------------------------------------------------
 # Core ETL Logic
@@ -585,7 +724,7 @@ def perform_load(processed_path: str, target_table: str, upload_id: str):
                 
         logger.info(f"Final DataFrame dtypes: {df.dtypes.to_dict()}")
             
-        create_table_if_not_exists(client, target_table, df)
+        create_table_if_not_exists(client, target_table, df, upload_id)
 
         logger.info(f"Inserting {len(df)} rows into ClickHouse table '{target_table}'")
         
@@ -595,8 +734,14 @@ def perform_load(processed_path: str, target_table: str, upload_id: str):
             logger.error(f"insert_dataframe failed: {insert_error}")
             logger.info("Trying alternative insertion method...")
             
-            # Alternative insertion method using records
+            # Alternative insertion method using records with explicit column names
             records = df.to_dict('records')
+            
+            # Get column names from DataFrame
+            column_names = list(df.columns)
+            columns_str = ', '.join([f'`{col}`' for col in column_names])
+            
+            logger.info(f"Alternative insertion: inserting {len(records)} records with columns: {column_names}")
             
             # Clean records for ClickHouse compatibility
             cleaned_records = []
@@ -605,17 +750,33 @@ def perform_load(processed_path: str, target_table: str, upload_id: str):
                 for key, value in record.items():
                     if pd.isna(value) or value is None:
                         cleaned_record[key] = None
-                    elif isinstance(value, float) and not isinstance(value, bool):
-                        # Handle float values that should be strings
-                        if pd.isna(value):
-                            cleaned_record[key] = None
+                    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                        # Handle numeric values - convert to int if it's a whole number
+                        if isinstance(value, float) and value.is_integer():
+                            cleaned_record[key] = int(value)
                         else:
-                            cleaned_record[key] = str(value) if not str(value).lower() in ['nan', 'none'] else None
+                            cleaned_record[key] = value
+                    elif isinstance(value, str):
+                        # Try to convert string numbers to actual numbers
+                        try:
+                            if '.' in value:
+                                float_val = float(value)
+                                if float_val.is_integer():
+                                    cleaned_record[key] = int(float_val)
+                                else:
+                                    cleaned_record[key] = float_val
+                            else:
+                                cleaned_record[key] = int(value)
+                        except (ValueError, TypeError):
+                            cleaned_record[key] = value
                     else:
                         cleaned_record[key] = str(value) if value is not None else None
                 cleaned_records.append(cleaned_record)
             
-            client.execute(f"INSERT INTO {CLICKHOUSE_DB}.`{target_table}` VALUES", cleaned_records)
+            # Use explicit column names in INSERT statement
+            insert_sql = f"INSERT INTO {CLICKHOUSE_DB}.`{target_table}` ({columns_str}) VALUES"
+            logger.info(f"Executing: {insert_sql}")
+            client.execute(insert_sql, cleaned_records)
 
         update_upload_processing_status(upload_id, 'completed')
         logger.info(f"Successfully loaded data into '{target_table}'")

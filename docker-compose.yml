@@ -372,6 +372,19 @@ services:
     volumes:
       - metabase_data:/metabase-data
 
+  # Frontend React Application
+  frontend:
+    build:
+      context: ./e2i/frontend
+      dockerfile: Dockerfile
+    container_name: e2i_frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - django
+    environment:
+      - NODE_ENV=production
+
 volumes:
   airflow_pgdata:
   e2i_pg:

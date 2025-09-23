@@ -1,10 +1,9 @@
-# e2i_api/apps/ingestion/template_views.py - Updated with authentication
+# e2i_api/apps/ingestion/template_views.py
 
 import csv
 import io
 import json
 import logging
-import uuid
 import pandas as pd
 from django.db import transaction
 from django.db.models import Count
@@ -12,6 +11,12 @@ from django.http import JsonResponse, HttpResponseNotAllowed
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 
+# Consolidated and cleaned imports
+from e2i_api.apps.common.auth import (
+    admin_required,
+    user_access_required,
+    get_current_user,
+)
 from .models import (
     ColumnMapping,
     DataTemplate,
@@ -26,34 +31,35 @@ from .views import (
     _notify_orchestrator,
 )
 
-# Import authentication decorators
-from e2i_api.apps.common.auth import (
-    require_auth, 
-    admin_required, 
-    user_access_required,
-    get_current_user,
-    get_current_user_id
-)
-
 logger = logging.getLogger(__name__)
 
 # ===================================================================
-# ADMIN: Template Management
+# Template Management
 # ===================================================================
 
-@user_access_required  # Both admin and user can list templates
+@user_access_required
 def template_list_view(request):
-    """List all active templates for selection. Accessible by both admin and user."""
+    """List all templates for the current user."""
     if request.method != "GET":
         return HttpResponseNotAllowed(["GET"])
 
-    templates = DataTemplate.objects.filter(status="active").prefetch_related("columns")
+    current_user = get_current_user(request)
+    
+    # If user is admin, show all templates they created
+    # If user is regular user, show all active templates (created by anyone)
+    if current_user.role == 'admin':
+        templates = DataTemplate.objects.filter(created_by=current_user.id).prefetch_related("columns")
+    else:
+        # Regular users can see all active templates
+        templates = DataTemplate.objects.filter(status='active').prefetch_related("columns")
+
     result = [
         {
             "id": str(template.id),
             "name": template.name,
             "description": template.description,
             "version": template.version,
+            "status": template.status,
             "target_table": template.target_table,
             "column_count": template.columns.count(),
             "columns": [
@@ -61,7 +67,9 @@ def template_list_view(request):
                     "name": col.name,
                     "display_name": col.display_name,
                     "data_type": col.data_type,
+                    "processing_type": col.processing_type,
                     "is_required": col.is_required,
+                    "merged_from_columns": col.merged_from_columns,
                 }
                 for col in template.columns.all()
             ],
@@ -72,8 +80,10 @@ def template_list_view(request):
     return JsonResponse({"templates": result})
 
 
+# In e2i_api/apps/ingestion/template_views.py
+
 @csrf_exempt
-@admin_required  # Only admin can create templates
+@admin_required
 def template_create_from_upload_view(request):
     """Admin: Create a new template from an existing file upload."""
     if request.method != "POST":
@@ -85,19 +95,22 @@ def template_create_from_upload_view(request):
 
     upload_id = data.get('upload_id')
     template_name = data.get('name', '').strip()
-    target_table = data.get('target_table') # Ensure this is provided by the admin UI
+    target_table = data.get('target_table')
 
     if not all([upload_id, template_name, target_table]):
         return _json_error("BAD_REQUEST", "upload_id, name, and target_table are required")
 
     upload = get_object_or_404(Upload, id=upload_id)
-    user_id = get_current_user_id(request)
+    
+    # ### FIX: REMOVED the incorrect 'user_id' line ###
+    # ### Get the full user object instead ###
+    current_user = get_current_user(request)
 
     try:
         client = _get_minio_client()
         bucket = _bucket_name()
         with client.get_object(bucket, upload.minio_key) as response:
-            content = response.read().decode("utf-8-sig") # Use utf-8-sig to handle BOM
+            content = response.read().decode("utf-8-sig")
         df = pd.read_csv(io.StringIO(content))
     except Exception as e:
         return _json_error("PROCESSING_ERROR", f"Failed to read file from storage: {e}", 500)
@@ -106,7 +119,8 @@ def template_create_from_upload_view(request):
         template = DataTemplate.objects.create(
             name=template_name,
             description=data.get("description", ""),
-            created_by=user_id,
+            # ### FIX: Use the correct 'current_user.id' here ###
+            created_by=current_user.id,
             created_from_upload=upload,
             target_table=target_table,
             status="draft",
@@ -132,9 +146,26 @@ def template_create_from_upload_view(request):
     
     return JsonResponse({"id": str(template.id), "status": template.status}, status=201)
 
+@user_access_required
+def template_detail_view(request, template_id):
+    """Get template details for users (read-only access)."""
+    if request.method != "GET":
+        return HttpResponseNotAllowed(["GET"])
+    
+    template = get_object_or_404(DataTemplate.objects.prefetch_related('columns'), id=template_id)
+    
+    return JsonResponse({
+        'id': str(template.id), 'name': template.name, 'description': template.description,
+        'status': template.status, 'target_table': template.target_table,
+        'columns': [{'id': str(c.id), 'name': c.name, 'display_name': c.display_name,
+                     'data_type': c.data_type, 'processing_type': c.processing_type,
+                     'is_required': c.is_required, 'merged_from_columns': c.merged_from_columns,
+                     'order': c.order}
+                    for c in template.columns.all()]
+    })
 
 @csrf_exempt
-@admin_required  # Only admin can edit templates
+@admin_required
 def template_edit_view(request, template_id):
     """Admin: Get, update, or delete a template definition."""
     template = get_object_or_404(DataTemplate.objects.prefetch_related('columns'), id=template_id)
@@ -144,7 +175,9 @@ def template_edit_view(request, template_id):
             'id': str(template.id), 'name': template.name, 'description': template.description,
             'status': template.status, 'target_table': template.target_table,
             'columns': [{'id': str(c.id), 'name': c.name, 'display_name': c.display_name,
-                         'data_type': c.data_type, 'is_required': c.is_required, 'order': c.order}
+                         'data_type': c.data_type, 'processing_type': c.processing_type,
+                         'is_required': c.is_required, 'merged_from_columns': c.merged_from_columns,
+                         'order': c.order}
                         for c in template.columns.all()]
         })
     elif request.method == "PUT":
@@ -162,6 +195,8 @@ def template_edit_view(request, template_id):
             if 'columns' in data:
                 template.columns.all().delete()
                 for col_data in data['columns']:
+                    # Log the column data being created for debugging
+                    logger.info(f"Creating column with data: {col_data}")
                     TemplateColumn.objects.create(template=template, **col_data)
         return JsonResponse({"success": True, "message": "Template updated."})
     elif request.method == "DELETE":
@@ -172,7 +207,7 @@ def template_edit_view(request, template_id):
 
 
 @csrf_exempt
-@admin_required  # Only admin can activate templates
+@admin_required
 def template_activate_view(request, template_id):
     """Admin: Activate a template to make it available for users."""
     if request.method != "POST":
@@ -183,11 +218,23 @@ def template_activate_view(request, template_id):
     return JsonResponse({"success": True, "status": template.status})
 
 
+@csrf_exempt
+@admin_required
+def template_deactivate_view(request, template_id):
+    """Admin: Deactivate a template, changing its status back to draft."""
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+    template = get_object_or_404(DataTemplate, id=template_id)
+    template.status = "draft"
+    template.save()
+    return JsonResponse({"success": True, "status": template.status})
+
+
 # ===================================================================
 # USER: Mapping Workflow
 # ===================================================================
 
-@user_access_required  # Both admin and user can preview uploads
+@user_access_required
 def upload_preview_view(request, upload_id):
     """User: Get a preview of an uploaded file for the mapping UI."""
     if request.method != "GET":
@@ -195,7 +242,6 @@ def upload_preview_view(request, upload_id):
     
     upload = get_object_or_404(Upload, id=upload_id)
     
-    # Check if user owns this upload or is admin
     current_user = get_current_user(request)
     if str(upload.user_id) != str(current_user.id) and current_user.role != 'admin':
         return _json_error("FORBIDDEN", "Access denied", 403)
@@ -227,11 +273,9 @@ def upload_preview_view(request, upload_id):
 
 
 @csrf_exempt
-@user_access_required  # Both admin and user can select templates
+@user_access_required
 def user_select_template_view(request, upload_id):
-    """
-    User selects a template for their upload. DOES NOT trigger the pipeline.
-    """
+    """User selects a template for their upload. DOES NOT trigger the pipeline."""
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
 
@@ -246,7 +290,6 @@ def user_select_template_view(request, upload_id):
 
     upload = get_object_or_404(Upload, id=upload_id)
     
-    # Check if user owns this upload or is admin
     current_user = get_current_user(request)
     if str(upload.user_id) != str(current_user.id) and current_user.role != 'admin':
         return _json_error("FORBIDDEN", "Access denied", 403)
@@ -267,11 +310,9 @@ def user_select_template_view(request, upload_id):
 
 
 @csrf_exempt
-@user_access_required  # Both admin and user can set mappings
+@user_access_required
 def upload_set_mappings_view(request, upload_id):
-    """
-    User sets column mappings for an upload AND triggers the Airflow pipeline.
-    """
+    """User sets column mappings for an upload AND triggers the Airflow pipeline."""
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
 
@@ -282,7 +323,6 @@ def upload_set_mappings_view(request, upload_id):
         return _json_error("BAD_REQUEST", "Invalid JSON body")
 
     try:
-        # Eagerly load related objects to ensure a template has been selected
         upload = Upload.objects.select_related("template_info__selected_template").get(id=upload_id)
         template = upload.template_info.selected_template
         if not template:
@@ -290,43 +330,71 @@ def upload_set_mappings_view(request, upload_id):
     except (Upload.DoesNotExist, UploadExtension.DoesNotExist, ValueError) as e:
         return _json_error("BAD_REQUEST", f"Upload not found or template not selected: {e}", 400)
 
-    # Check if user owns this upload or is admin
     current_user = get_current_user(request)
     if str(upload.user_id) != str(current_user.id) and current_user.role != 'admin':
         return _json_error("FORBIDDEN", "Access denied", 403)
 
     with transaction.atomic():
-        # Clear previous mappings for this upload
+        # Clear existing mappings for this upload
         ColumnMapping.objects.filter(upload=upload).delete()
         
-        # Create new mapping records
         for mapping_data in mappings:
             source_col = mapping_data.get("source")
+            merged_sources = mapping_data.get("merged_sources", [])
             target_col_id = mapping_data.get("target_column_id")
-            if not source_col or not target_col_id:
+            
+            if not target_col_id:
                 continue
 
             try:
                 target_column = TemplateColumn.objects.get(id=target_col_id, template=template)
-                ColumnMapping.objects.create(
-                    upload=upload,
-                    template=template,
-                    source_column=source_col,
-                    target_column=target_column,
-                    transform_function=mapping_data.get("transform_function"),
-                    transform_params=mapping_data.get("transform_params", {}),
-                )
+                
+                # Handle regular column mapping (single source)
+                if source_col:
+                    ColumnMapping.objects.update_or_create(
+                        upload=upload,
+                        source_column=source_col,
+                        defaults={
+                            'template': template,
+                            'target_column': target_column,
+                            'transform_function': mapping_data.get("transform_function"),
+                            'transform_params': mapping_data.get("transform_params", {}),
+                        }
+                    )
+                
+                # Handle merged column mapping (multiple sources)
+                elif merged_sources:
+                    # Filter out empty/null sources
+                    valid_sources = [source for source in merged_sources if source]
+                    if valid_sources:
+                        # Create a single mapping record for merged columns
+                        # Use the first valid source as the primary source_column
+                        primary_source = valid_sources[0]
+                        ColumnMapping.objects.update_or_create(
+                            upload=upload,
+                            source_column=primary_source,
+                            defaults={
+                                'template': template,
+                                'target_column': target_column,
+                                'transform_function': mapping_data.get("transform_function"),
+                                'transform_params': {
+                                    **mapping_data.get("transform_params", {}),
+                                    'is_merged': True,
+                                    'merged_sources': valid_sources,
+                                    'primary_source': primary_source
+                                },
+                            }
+                        )
+                
             except TemplateColumn.DoesNotExist:
                 return _json_error("BAD_REQUEST", f"Invalid target column ID: {target_col_id}", 400)
         
-        # Update status to indicate readiness for processing
         upload.status = "mapped"
         upload.save()
         
         upload.template_info.mapping_completed = True
         upload.template_info.save()
 
-    # --- TRIGGER THE AIRFLOW PIPELINE ---
     logger.info(f"Mappings saved for upload {upload.id}. Triggering Airflow pipeline.")
     orchestrator_resp = _notify_orchestrator(
         upload_id=upload.id,
@@ -349,7 +417,7 @@ def upload_set_mappings_view(request, upload_id):
 # ===================================================================
 
 @csrf_exempt
-@admin_required  # Only admin can delete template columns
+@admin_required
 def admin_delete_template_column_view(request, template_id, column_id):
     """Admin: Delete a specific column from a template."""
     if request.method != "DELETE":
@@ -367,7 +435,7 @@ def admin_delete_template_column_view(request, template_id, column_id):
 
 
 @csrf_exempt
-@admin_required  # Only admin can delete templates
+@admin_required
 def admin_delete_template_view(request, template_id):
     """Admin: Delete an entire template."""
     if request.method != "DELETE":
@@ -383,7 +451,7 @@ def admin_delete_template_view(request, template_id):
     return JsonResponse({"success": True, "message": f"Template '{template_name}' deleted."})
 
 
-@admin_required  # Only admin can check template usage
+@admin_required
 def admin_template_usage_view(request, template_id):
     """Admin: Check a template's usage statistics."""
     if request.method != "GET":
