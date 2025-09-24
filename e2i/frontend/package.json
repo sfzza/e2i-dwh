@@ -11,9 +11,9 @@
   },
   "scripts": {
     "start": "react-scripts start",
-    "build": "react-scripts build"
+    "build": "GENERATE_SOURCEMAP=false react-scripts build"
   },
-  "proxy": "http://localhost:8001",
+  "proxy": "https://e2i-dwh-production.up.railway.app",
   "browserslist": {
     "production": [">0.2%", "not dead", "not op_mini all"],
     "development": ["last 1 chrome version", "last 1 firefox version", "last 1 safari version"]
