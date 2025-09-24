@@ -19,6 +19,11 @@ RUN apt-get update \
         libpq-dev \
         curl \
         git \
+        gcc \
+        g++ \
+        libffi-dev \
+        libssl-dev \
+        python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies

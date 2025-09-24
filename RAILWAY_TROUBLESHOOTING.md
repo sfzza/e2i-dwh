@@ -68,10 +68,21 @@ RUN chmod -R 755 /app
 
 **Error Message:**
 ```
+ModuleNotFoundError: No module named 'pandas'
 ModuleNotFoundError: No module named 'django'
 ```
 
 **Solution:**
+✅ **Fixed** - Updated requirements.txt with all necessary dependencies:
+```bash
+# Added data processing libraries
+pandas>=1.5.0
+numpy>=1.21.0
+openpyxl>=3.0.0
+xlrd>=2.0.0
+xlsxwriter>=3.0.0
+```
+
 ✅ **Fixed** - Dependencies are installed in startup script:
 ```bash
 pip install -r requirements.txt
