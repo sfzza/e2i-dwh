@@ -11,7 +11,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Set work directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies including Node.js
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         postgresql-client \
@@ -24,6 +24,8 @@ RUN apt-get update \
         libffi-dev \
         libssl-dev \
         python3-dev \
+    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies

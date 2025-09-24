@@ -38,7 +38,25 @@ python /app/check-database.py
 echo "🗄️ Running database migrations..."
 python manage.py migrate
 
-echo "🔧 Collecting static files..."
+echo "🔧 Building and collecting static files..."
+
+# Build React frontend if package.json exists
+if [ -f "e2i/frontend/package.json" ]; then
+    echo "📦 Building React frontend..."
+    cd e2i/frontend
+    npm run build
+    cd ../..
+    
+    # Copy React build to Django static files
+    echo "📋 Copying React build to Django static files..."
+    mkdir -p e2i/backend/e2i_api/staticfiles
+    cp -r e2i/frontend/build/* e2i/backend/e2i_api/staticfiles/
+    echo "✅ React frontend integrated with Django"
+else
+    echo "⚠️  React frontend package.json not found, skipping build"
+fi
+
+echo "🔧 Collecting Django static files..."
 python manage.py collectstatic --noinput
 
 echo "🌐 Starting Django server..."

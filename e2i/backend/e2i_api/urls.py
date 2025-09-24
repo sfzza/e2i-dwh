@@ -6,24 +6,56 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 
-# Simple root view
+# Serve React frontend from root
 @require_http_methods(["GET"])
 def root_view(request):
-    return JsonResponse({
-        "message": "E2I Data Warehouse API",
-        "version": "1.0.0",
-        "status": "running",
-        "endpoints": {
-            "admin": "/admin/",
-            "api": "/api/",
-            "health": "/health/",
-            "auth": "/auth/",
-            "dashboard": "/dashboard/",
-            "templates": "/templates/",
-            "ingestion": "/ingest/",
-            "reports": "/api/reports/"
-        }
-    })
+    # Serve the React app's index.html
+    try:
+        from django.http import FileResponse
+        import os
+        from django.conf import settings
+        
+        # Path to React build index.html
+        index_path = os.path.join(settings.STATIC_ROOT, 'index.html')
+        
+        if os.path.exists(index_path):
+            return FileResponse(open(index_path, 'rb'), content_type='text/html')
+        else:
+            # Fallback if React app not found
+            return JsonResponse({
+                "message": "E2I Data Warehouse",
+                "version": "1.0.0",
+                "status": "running",
+                "frontend": "React app not found, serving API info",
+                "endpoints": {
+                    "admin": "/admin/",
+                    "api": "/api/",
+                    "health": "/health/",
+                    "auth": "/auth/",
+                    "dashboard": "/dashboard/",
+                    "templates": "/templates/",
+                    "ingestion": "/ingest/",
+                    "reports": "/api/reports/"
+                }
+            })
+    except Exception as e:
+        # Fallback to JSON response
+        return JsonResponse({
+            "message": "E2I Data Warehouse API",
+            "version": "1.0.0",
+            "status": "running",
+            "error": str(e),
+            "endpoints": {
+                "admin": "/admin/",
+                "api": "/api/",
+                "health": "/health/",
+                "auth": "/auth/",
+                "dashboard": "/dashboard/",
+                "templates": "/templates/",
+                "ingestion": "/ingest/",
+                "reports": "/api/reports/"
+            }
+        })
 
 # Health check view
 @require_http_methods(["GET"])
