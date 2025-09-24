@@ -36,15 +36,19 @@ echo "🔍 Checking database configuration..."
 python /app/check-database.py
 
 echo "🗄️ Running database migrations..."
+cd /app/e2i/backend
 python manage.py migrate
+cd /app
 
 echo "🔧 Building and collecting static files..."
 
 # Quick health check test
 echo "🔍 Testing Django startup..."
+cd /app/e2i/backend
 python manage.py check --deploy || {
     echo "❌ Django check failed, but continuing with deployment"
 }
+cd /app
 
 # Build React frontend if package.json exists
 if [ -f "/app/e2i/frontend/package.json" ]; then
@@ -85,12 +89,15 @@ else
 fi
 
 echo "🔧 Collecting Django static files..."
+cd /app/e2i/backend
 python manage.py collectstatic --noinput
+cd /app
 
 echo "🌐 Starting Django server..."
 echo "📡 Using PORT: $PORT"
 
 # Use production server for Railway
+cd /app/e2i/backend
 if command -v gunicorn &> /dev/null; then
     echo "🚀 Starting with Gunicorn (Production)"
     gunicorn --bind 0.0.0.0:$PORT --workers 3 e2i_api.wsgi:application
