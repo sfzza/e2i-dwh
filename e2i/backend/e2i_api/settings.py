@@ -28,9 +28,19 @@ SECRET_KEY = os.getenv(
 
 DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() == "true"
 
-ALLOWED_HOSTS = (
-    os.getenv("DJANGO_ALLOWED_HOSTS", "*.railway.app,healthcheck.railway.app").split(",") if not DEBUG else ["*"]
-)
+# ALLOWED_HOSTS configuration for Railway
+if DEBUG:
+    ALLOWED_HOSTS = ["*"]
+else:
+    # For production, always include Railway domains
+    default_hosts = ["*.railway.app", "healthcheck.railway.app"]
+    
+    # Get additional hosts from environment variable
+    env_hosts = os.getenv("DJANGO_ALLOWED_HOSTS", "").split(",")
+    env_hosts = [host.strip() for host in env_hosts if host.strip()]
+    
+    # Combine default and environment hosts, removing duplicates
+    ALLOWED_HOSTS = list(set(default_hosts + env_hosts))
 
 # ---------------------------------------------------------------------
 # APPLICATIONS
