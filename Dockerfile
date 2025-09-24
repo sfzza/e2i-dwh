@@ -33,6 +33,7 @@ RUN chmod +x start.sh
 
 # Create necessary directories
 RUN mkdir -p /app/exports
+RUN mkdir -p /app/logs
 RUN mkdir -p /app/e2i/backend/logs
 
 # Set proper permissions

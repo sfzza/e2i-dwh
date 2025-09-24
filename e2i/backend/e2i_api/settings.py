@@ -214,6 +214,10 @@ CORS_ALLOW_HEADERS = [
 # ---------------------------------------------------------------------
 # LOGGING
 # ---------------------------------------------------------------------
+# Ensure logs directory exists
+import os
+os.makedirs('/app/logs', exist_ok=True)
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -222,11 +226,15 @@ LOGGING = {
             'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
             'style': '{',
         },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
     },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
-            'formatter': 'verbose',
+            'formatter': 'simple',
         },
         'file': {
             'class': 'logging.FileHandler',
@@ -236,9 +244,9 @@ LOGGING = {
     },
     'loggers': {
         'e2i_api.requests': {
-            'handlers': ['file', 'console'],
+            'handlers': ['console'],  # Only console for Railway
             'level': 'INFO',
-            'propagate': False, # Prevent duplicate logs
+            'propagate': False,
         },
         'e2i_api': {
             'handlers': ['console'],

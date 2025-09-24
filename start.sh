@@ -12,6 +12,12 @@ export DJANGO_SETTINGS_MODULE=e2i_api.settings
 export PYTHONPATH=/app
 export DJANGO_DEBUG=False
 
+# Create necessary directories
+echo "📁 Creating necessary directories..."
+mkdir -p /app/exports
+mkdir -p /app/logs
+mkdir -p /app/e2i/backend/logs
+
 # Navigate to the Django backend directory
 cd /app/e2i/backend
 
