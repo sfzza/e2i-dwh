@@ -3,6 +3,36 @@
 from django.contrib import admin
 from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
+from django.http import JsonResponse
+from django.views.decorators.http import require_http_methods
+
+# Simple root view
+@require_http_methods(["GET"])
+def root_view(request):
+    return JsonResponse({
+        "message": "E2I Data Warehouse API",
+        "version": "1.0.0",
+        "status": "running",
+        "endpoints": {
+            "admin": "/admin/",
+            "api": "/api/",
+            "health": "/health/",
+            "auth": "/auth/",
+            "dashboard": "/dashboard/",
+            "templates": "/templates/",
+            "ingestion": "/ingest/",
+            "reports": "/api/reports/"
+        }
+    })
+
+# Health check view
+@require_http_methods(["GET"])
+def health_view(request):
+    return JsonResponse({
+        "status": "healthy",
+        "service": "E2I Data Warehouse",
+        "database": "connected"
+    })
 
 # Authentication views
 from e2i_api.apps.common.auth import (
@@ -75,6 +105,10 @@ from e2i_api.apps.reporting.views import (
 
 
 urlpatterns = [
+    # Root and Health endpoints
+    path("", root_view, name="root"),
+    path("health/", health_view, name="health"),
+    
     # Django Admin
     path("admin/", admin.site.urls),
 
