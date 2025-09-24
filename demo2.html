@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>e2i Data Warehouse Portal - Final Demo</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <style>
+        /* Custom style for the active sidebar link and transitions */
+        .active-link {
+            background-color: #374151; /* gray-700 */
+            border-left: 4px solid #ef4444; /* red-500 */
+            font-weight: 600;
+        }
+        .nav-link {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 0;
+            transition: background-color 0.2s;
+        }
+        .nav-link:hover {
+            background-color: #4b5563; /* gray-600 */
+        }
+        /* Custom styles for the mapping table input */
+        .editable-input {
+            width: 100%;
+            padding: 4px 8px;
+            border: 1px solid #3b82f6; /* blue-500 */
+            border-radius: 4px;
+            background-color: #eff6ff; /* blue-50 */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans flex h-screen overflow-hidden">
+
+    <!-- Sidebar Navigation -->
+    <aside class="w-64 bg-gray-800 text-gray-200 flex-shrink-0 flex flex-col">
+        <div class="p-4 text-center text-2xl font-bold border-b border-gray-700">
+            e2i <span class="text-red-500">DWH</span>
+        </div>
+        <nav class="flex-1 overflow-y-auto">
+            <ul class="space-y-1 py-4">
+                <li><a href="#" class="nav-link active-link" data-page="dashboard"><i class="fas fa-tachometer-alt fa-fw mx-4"></i>Dashboard</a></li>
+                <li><a href="#" class="nav-link" data-page="upload"><i class="fas fa-upload fa-fw mx-4"></i>Data Ingestion</a></li>
+                <li><a href="#" class="nav-link" data-page="mapping"><i class="fas fa-project-diagram fa-fw mx-4"></i>Mapping Files</a></li>
+                <li><a href="#" class="nav-link" data-page="analytics"><i class="fas fa-chart-pie fa-fw mx-4"></i>Analytics & Reports</a></li>
+                <li class="admin-menu hidden"><a href="#" class="nav-link" data-page="user-management"><i class="fas fa-users-cog fa-fw mx-4"></i>User Management</a></li>
+                <li class="admin-menu hidden"><a href="#" class="nav-link" data-page="system-status"><i class="fas fa-heartbeat fa-fw mx-4"></i>System Status</a></li>
+                <li class="admin-menu hidden"><a href="#" class="nav-link" data-page="audit-logs"><i class="fas fa-clipboard-list fa-fw mx-4"></i>Audit Logs</a></li>
+                <li><a href="#" class="nav-link" data-page="help"><i class="fas fa-question-circle fa-fw mx-4"></i>Help & Support</a></li>
+            </ul>
+        </nav>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 flex flex-col h-screen">
+        <header class="bg-white shadow-md p-4 flex justify-between items-center h-16 flex-shrink-0">
+            <div class="flex items-center">
+                <label for="role-toggle" class="font-bold mr-2 text-sm">View As:</label>
+                <select id="role-toggle" class="border border-gray-300 rounded-md p-1 text-sm"><option value="user">Data Uploader / Analyst</option><option value="admin">Administrator</option></select>
+            </div>
+            <div class="flex items-center">
+                <span id="user-role-display" class="mr-4 text-sm text-gray-700">Welcome, User</span>
+                <a href="#"><i class="fas fa-user-circle text-2xl text-gray-600"></i></a>
+            </div>
+        </header>
+
+        <main class="flex-1 p-6 overflow-y-auto">
+            <!-- ========== DASHBOARD PAGE ========== -->
+            <div id="dashboard" class="page">
+                <h1 class="text-3xl font-bold mb-4 pb-2 border-b">Dashboard</h1>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                    <div class="bg-white p-6 rounded-lg shadow-lg text-center"><i class="fas fa-file-csv text-4xl text-blue-500 mb-2"></i><div class="text-3xl font-bold">17</div><div class="text-gray-500">Files Processed (Month)</div></div>
+                    <div class="bg-white p-6 rounded-lg shadow-lg text-center"><i class="fas fa-spinner text-4xl text-yellow-500 mb-2"></i><div class="text-3xl font-bold">2</div><div class="text-gray-500">Pipelines Running</div></div>
+                    <div class="bg-white p-6 rounded-lg shadow-lg text-center"><i class="fas fa-exclamation-triangle text-4xl text-red-500 mb-2"></i><div class="text-3xl font-bold">0</div><div class="text-gray-500">System Alerts</div></div>
+                    <div class="bg-white p-6 rounded-lg shadow-lg text-center"><i class="fas fa-history text-4xl text-green-500 mb-2"></i><div class="text-3xl font-bold">128</div><div class="text-gray-500">Reports Generated</div></div>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-lg">
+                    <h2 class="text-2xl font-bold mb-4 text-blue-600">Quick Actions</h2>
+                    <a href="#" class="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 transition-colors inline-flex items-center" onclick="showPage('upload')"><i class="fas fa-upload mr-2"></i>Upload New Data File</a>
+                    <a href="#" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors inline-flex items-center ml-4" onclick="showPage('analytics')"><i class="fas fa-chart-line mr-2"></i>Go to Analytics Portal</a>
+                </div>
+                <div class="text-center text-gray-500 text-xs mt-8"><p><i class="fas fa-map-marker-alt"></i> All data is hosted and processed within Singapore. | <i class="fas fa-shield-alt"></i> Platform adheres to PDPA and ISO 27001 standards.</p></div>
+            </div>
+
+            <!-- ========== DATA INGESTION PAGE ========== -->
+            <div id="upload" class="page hidden">
+                <h1 class="text-3xl font-bold mb-4">Data Ingestion</h1>
+                <div class="bg-white p-6 rounded-lg shadow-lg">
+                    <h2 class="text-2xl font-bold mb-2">Upload New Data File</h2>
+                    <p class="text-gray-600 mb-4">Upload CSV, XLSX, or TXT files. The system will automatically trigger the appropriate ETL process with data quality checks.</p>
+                    <div class="mb-4"><label for="file-type" class="block font-bold mb-1">Select Data Type / Source:</label><select id="file-type" class="w-full p-2 border rounded-md"><option>CC4.0 File</option><option>MDM Annex A3</option><option>Talented File</option><option>Other</option></select></div>
+                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-10 text-center cursor-pointer hover:bg-gray-50"><i class="fas fa-cloud-upload-alt text-5xl text-gray-400 mb-3"></i><p class="text-lg">Drag & Drop your file here or <strong class="text-blue-600">click to browse</strong></p></div>
+                    <p class="text-xs text-gray-500 mt-4"><i class="fas fa-lock"></i> Note: All sensitive data (e.g., NRIC) is automatically tokenized during processing. All data at rest is encrypted.</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-lg mt-6">
+                    <h2 class="text-2xl font-bold mb-4">Recent Ingestion History</h2>
+                    <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead><tr class="bg-gray-100"><th class="p-3">File Name</th><th class="p-3">Type</th><th class="p-3">Status</th><th class="p-3">Timestamp</th></tr></thead><tbody><tr><td class="p-3 border-b border-gray-200">CC4.0_Oct2023.xlsx</td><td class="p-3 border-b border-gray-200">CC4.0 File</td><td class="p-3 border-b border-gray-200"><span class="bg-green-500 text-white px-2 py-1 text-xs rounded-full">Completed</span></td><td class="p-3 border-b border-gray-200">26 Oct 2023, 10:15</td></tr><tr><td class="p-3 border-b border-gray-200">talented_w42.csv</td><td class="p-3 border-b border-gray-200">Talented File</td><td class="p-3 border-b border-gray-200"><span class="bg-yellow-400 text-black px-2 py-1 text-xs rounded-full">Processing</span></td><td class="p-3 border-b border-gray-200">26 Oct 2023, 09:30</td></tr><tr><td class="p-3 border-b border-gray-200">mapping_SSOC_v3.csv</td><td class="p-3 border-b border-gray-200">Mapping File</td><td class="p-3 border-b border-gray-200"><span class="bg-red-500 text-white px-2 py-1 text-xs rounded-full">Failed: Data validation error</span></td><td class="p-3 border-b border-gray-200">25 Oct 2023, 16:00</td></tr></tbody></table></div>
+                </div>
+            </div>
+            
+            <!-- ========== MAPPING FILES PAGE ========== -->
+            <div id="mapping" class="page hidden">
+                <h1 class="text-3xl font-bold mb-4">Mapping Files Maintenance</h1>
+                <div class="bg-white p-6 rounded-lg shadow-lg mb-6">
+                    <h2 class="text-2xl font-bold mb-2">Upload New or Replacement Mapping File</h2>
+                    <p class="text-gray-600 mb-4">Replace an existing mapping table or create a new one.</p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div><label for="mapping-file-select" class="block font-bold mb-1">Action:</label><select id="mapping-file-select" class="w-full p-2 border rounded-md"><option value="ssoc">Replace SSOC Codes</option><option value="masterTag">Replace Master Tag File</option><option value="programme">Replace Programme Partnership</option><option value="new">--- Create New Mapping Type ---</option></select></div>
+                        <div id="new-mapping-name-container" class="hidden"><label for="new-mapping-name" class="block font-bold mb-1">New Mapping Name:</label><input type="text" id="new-mapping-name" placeholder="e.g., Industry Group Mappings" class="w-full p-2 border rounded-md"></div>
+                    </div>
+                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-10 text-center cursor-pointer hover:bg-gray-50"><i class="fas fa-map-signs text-5xl text-gray-400 mb-3"></i><p class="text-lg">Drag & Drop file here or <strong class="text-blue-600">click to browse</strong></p></div>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-lg mt-6">
+                    <div class="flex flex-wrap justify-between items-center mb-4 gap-4">
+                        <h2 id="mapping-table-title" class="text-2xl font-bold">Ad-hoc Edits: SSOC Code Mappings</h2>
+                        <div>
+                            <button id="add-mapping-btn" class="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700"><i class="fas fa-plus mr-2"></i>Add Row</button>
+                            <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 ml-2"><i class="fas fa-save mr-2"></i>Save All Changes</button>
+                        </div>
+                    </div>
+                    <p class="text-sm text-gray-600 mb-4">Make minor ad-hoc changes or additions to the current mappings below.</p>
+                    <div id="mapping-table-container" class="overflow-x-auto"><table class="w-full text-left text-sm"></table></div>
+                </div>
+            </div>
+
+            <!-- ========== ANALYTICS & REPORTS PAGE ========== -->
+            <div id="analytics" class="page hidden">
+                 <h1 class="text-3xl font-bold mb-4">Analytics & Reports Portal</h1>
+                <div class="bg-white p-6 rounded-lg shadow-lg">
+                    <h2 class="text-2xl font-bold mb-4 text-blue-600">Key Reports & Dashboards</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="border p-4 rounded-lg flex flex-col justify-between"><div><h3><i class="fas fa-user-check mr-2"></i>Valid Placements Report</h3><p class="text-sm text-gray-600 my-2">Computed from multiple datasets with custom logic to generate placement statistics.</p></div><div><a href="#" class="bg-blue-600 text-white px-3 py-1 rounded-md text-sm hover:bg-blue-700">View Report</a><a href="#" class="ml-2 bg-green-600 text-white px-3 py-1 rounded-md text-sm hover:bg-green-700"><i class="fas fa-file-excel mr-1"></i>Export to Excel</a></div></div>
+                        <div class="border p-4 rounded-lg flex flex-col justify-between"><div><h3><i class="fas fa-hands-helping mr-2"></i>Valid Assisted (NJR/BA)</h3><p class="text-sm text-gray-600 my-2">Aggregations and transformations to analyse assisted jobseekers.</p></div><div><a href="#" class="bg-blue-600 text-white px-3 py-1 rounded-md text-sm hover:bg-blue-700">View Report</a><a href="#" class="ml-2 bg-green-600 text-white px-3 py-1 rounded-md text-sm hover:bg-green-700"><i class="fas fa-file-excel mr-1"></i>Export to Excel</a></div></div>
+                        <div class="border p-4 rounded-lg flex flex-col justify-between"><div><h3><i class="fas fa-folder-open mr-2"></i>Open Cases Report</h3><p class="text-sm text-gray-600 my-2">View and manage currently open cases with user-defined formulas.</p></div><div><a href="#" class="bg-blue-600 text-white px-3 py-1 rounded-md text-sm hover:bg-blue-700">View Report</a><a href="#" class="ml-2 bg-green-600 text-white px-3 py-1 rounded-md text-sm hover:bg-green-700"><i class="fas fa-file-excel mr-1"></i>Export to Excel</a></div></div>
+                        <div class="border p-4 rounded-lg flex flex-col justify-between"><div><h3><i class="fas fa-route mr-2"></i>Jobseeker Pathway Dashboard</h3><p class="text-sm text-gray-600 my-2">Visualize individual journeys across services using tokenized unique identifiers (NRIC).</p></div><div><a href="#" class="bg-blue-600 text-white px-3 py-1 rounded-md text-sm hover:bg-blue-700">Open Dashboard</a></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ========== USER MANAGEMENT PAGE (ADMIN ONLY) ========== -->
+            <div id="user-management" class="page hidden admin-page">
+                <h1 class="text-3xl font-bold mb-4">User Management</h1>
+                <div class="bg-white p-6 rounded-lg shadow-lg">
+                    <a href="#" class="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 inline-flex items-center mb-4"><i class="fas fa-user-plus mr-2"></i>Add New User</a>
+                    <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead><tr class="bg-gray-100"><th class="p-3">Name</th><th class="p-3">Email</th><th class="p-3">Role</th><th class="p-3">Last Login</th><th class="p-3">Actions</th></tr></thead><tbody><tr><td class="p-3 border-b">Admin User</td><td class="p-3 border-b">admin@e2i.com.sg</td><td class="p-3 border-b">Administrator</td><td class="p-3 border-b">26 Oct 2023, 11:00</td><td class="p-3 border-b"><a href="#" class="text-blue-600 hover:underline">Edit</a></td></tr><tr><td class="p-3 border-b">Jane Doe</td><td class="p-3 border-b">jane.doe@e2i.com.sg</td><td class="p-3 border-b">Uploader</td><td class="p-3 border-b">26 Oct 2023, 10:14</td><td class="p-3 border-b"><a href="#" class="text-blue-600 hover:underline">Edit</a></td></tr><tr><td class="p-3 border-b">John Smith</td><td class="p-3 border-b">john.smith@e2i.com.sg</td><td class="p-3 border-b">Analyst</td><td class="p-3 border-b">25 Oct 2023, 14:18</td><td class="p-3 border-b"><a href="#" class="text-blue-600 hover:underline">Edit</a></td></tr></tbody></table></div>
+                </div>
+            </div>
+            
+            <!-- ========== SYSTEM STATUS PAGE (ADMIN ONLY) ========== -->
+            <div id="system-status" class="page hidden admin-page">
+                <h1 class="text-3xl font-bold mb-4">System Status & Monitoring</h1>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                    <div class="bg-white p-6 rounded-lg shadow-lg"><h2 class="text-xl font-bold mb-2">Kubernetes Health</h2><p>CPU: 35% | Memory: 60%</p><div class="mt-2"><span class="bg-green-500 text-white px-3 py-1 text-sm rounded-full">System Healthy</span></div></div>
+                    <div class="bg-white p-6 rounded-lg shadow-lg"><h2 class="text-xl font-bold mb-2">Connected Systems API</h2><p>System A: Connected | System B: Connected</p><div class="mt-2"><span class="bg-green-500 text-white px-3 py-1 text-sm rounded-full">All APIs Operational</span></div></div>
+                    <div class="bg-white p-6 rounded-lg shadow-lg"><h2 class="text-xl font-bold mb-2">Real-time Data Streams</h2><p>Stream A: Active | Stream B: Active</p><div class="mt-2"><span class="bg-green-500 text-white px-3 py-1 text-sm rounded-full">Receiving Data</span></div></div>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-lg"><h2 class="text-2xl font-bold mb-4">Live Pipeline Status (from Airflow)</h2><div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead><tr class="bg-gray-100"><th class="p-3">DAG Name</th><th class="p-3">Status</th><th class="p-3">Last Run</th><th class="p-3">Next Run</th></tr></thead><tbody><tr><td class="p-3 border-b">process_cc40_files</td><td class="p-3 border-b"><span class="bg-green-500 text-white px-2 py-1 text-xs rounded-full">Success</span></td><td class="p-3 border-b">26 Oct 2023, 10:15</td><td class="p-3 border-b">On Trigger</td></tr><tr><td class="p-3 border-b">process_talented_files</td><td class="p-3 border-b"><span class="bg-yellow-400 text-black px-2 py-1 text-xs rounded-full">Running</span></td><td class="p-3 border-b">26 Oct 2023, 09:30</td><td class="p-3 border-b">On Trigger</td></tr><tr><td class="p-3 border-b">sync_onemap_data</td><td class="p-3 border-b"><span class="bg-green-500 text-white px-2 py-1 text-xs rounded-full">Success</span></td><td class="p-3 border-b">26 Oct 2023, 02:00</td><td class="p-3 border-b">27 Oct 2023, 02:00</td></tr></tbody></table></div></div>
+            </div>
+
+            <!-- ========== AUDIT LOGS PAGE (ADMIN ONLY) ========== -->
+            <div id="audit-logs" class="page hidden admin-page">
+                <h1 class="text-3xl font-bold mb-4">User Activity Audit Logs</h1>
+                <div class="bg-white p-6 rounded-lg shadow-lg"><p class="text-gray-600 mb-4">A comprehensive log of all user actions across the platform, covering both upload and download processes.</p><div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead><tr class="bg-gray-100"><th class="p-3">Timestamp</th><th class="p-3">User</th><th class="p-3">Action</th><th class="p-3">Details</th></tr></thead><tbody><tr><td class="p-3 border-b">26 Oct 2023, 10:15:02</td><td class="p-3 border-b">jane.doe@e2i.com.sg</td><td class="p-3 border-b">FILE_UPLOAD_SUCCESS</td><td class="p-3 border-b">File: CC4.0_Oct2023.xlsx</td></tr><tr><td class="p-3 border-b">26 Oct 2023, 10:10:55</td><td class="p-3 border-b">john.smith@e2i.com.sg</td><td class="p-3 border-b">REPORT_EXPORT</td><td class="p-3 border-b">Report: Valid Placements Q3 2023</td></tr><tr><td class="p-3 border-b">26 Oct 2023, 09:55:12</td><td class="p-3 border-b">admin@e2i.com.sg</td><td class="p-3 border-b">USER_LOGIN_SUCCESS</td><td class="p-3 border-b">Source IP: 10.1.1.5</td></tr><tr><td class="p-3 border-b">26 Oct 2023, 09:45:31</td><td class="p-3 border-b">admin@e2i.com.sg</td><td class="p-3 border-b">MAPPING_FILE_UPDATE</td><td class="p-3 border-b">File: SSOC Codes, 1 row updated</td></tr></tbody></table></div></div>
+            </div>
+
+            <!-- ========== HELP & SUPPORT PAGE ========== -->
+            <div id="help" class="page hidden">
+                <h1 class="text-3xl font-bold mb-4">Help & Support</h1>
+                <div class="bg-white p-6 rounded-lg shadow-lg">
+                    <h2 class="text-2xl font-bold mb-4 text-blue-600">Resources & User Guidance</h2>
+                    <ul class="list-disc list-inside space-y-2 mb-6"><li><a href="#" class="text-blue-600 hover:underline"><i class="fas fa-book fa-fw mr-2"></i>User Manual & System Documentation</a></li><li><a href="#" class="text-blue-600 hover:underline"><i class="fas fa-video fa-fw mr-2"></i>Video Tutorials for Data Upload and Reporting</a></li><li><a href="#" class="text-blue-600 hover:underline"><i class="fas fa-file-alt fa-fw mr-2"></i>Data Dictionary and Mapping File Guides</a></li></ul>
+                    <h2 class="text-2xl font-bold mb-4 text-blue-600">Technical Assistance & Escalation</h2>
+                    <p class="text-gray-600 mb-4">For technical issues or urgent assistance, please contact our support team. Please refer to the SLA in your support agreement for response times and the escalation process.</p>
+                    <a href="mailto:support@vendor.com" class="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 inline-flex items-center"><i class="fas fa-envelope mr-2"></i>Email Support</a>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const navLinks = document.querySelectorAll('.nav-link');
+        const pages = document.querySelectorAll('.page');
+        const roleToggle = document.getElementById('role-toggle');
+        const adminMenus = document.querySelectorAll('.admin-menu');
+        const userRoleDisplay = document.getElementById('user-role-display');
+        
+        function showPage(pageId) {
+            navLinks.forEach(link => link.classList.remove('active-link'));
+            pages.forEach(page => page.classList.add('hidden'));
+            const activeLink = document.querySelector(`.nav-link[data-page="${pageId}"]`);
+            if (activeLink) activeLink.classList.add('active-link');
+            const activePage = document.getElementById(pageId);
+            if(activePage) activePage.classList.remove('hidden');
+        }
+
+        navLinks.forEach(link => { link.addEventListener('click', (e) => { e.preventDefault(); showPage(e.currentTarget.getAttribute('data-page')); }); });
+
+        roleToggle.addEventListener('change', (e) => {
+            const role = e.target.value;
+            if (role === 'admin') {
+                adminMenus.forEach(menu => menu.classList.remove('hidden'));
+                userRoleDisplay.textContent = 'Welcome, Administrator';
+            } else {
+                adminMenus.forEach(menu => menu.classList.add('hidden'));
+                userRoleDisplay.textContent = 'Welcome, User';
+                if(document.querySelector('.page:not(.hidden).admin-page')) { showPage('dashboard'); }
+            }
+        });
+        
+        const mappingData = {
+            ssoc: [ { source: '1111', target: 'Chief Executive Officer' }, { source: '2511', target: 'Systems Analyst' }, { source: '2512', target: 'Software Developer' }, { source: '3343', target: 'Administrative Assistant' } ],
+            masterTag: [ { source: 'SKL_UPG', target: 'Skills Upgrading' }, { source: 'JOB_MATCH', target: 'Job Matching Fair' } ],
+            programme: [ { source: 'P-Max', target: 'P-Max Programme for SMEs' }, { source: 'CCP', target: 'Career Conversion Programme' } ]
+        };
+        const mappingSelect = document.getElementById('mapping-file-select');
+        const tableContainer = document.getElementById('mapping-table-container');
+        const tableTitle = document.getElementById('mapping-table-title');
+        const addMappingBtn = document.getElementById('add-mapping-btn');
+        const newMappingNameContainer = document.getElementById('new-mapping-name-container');
+
+        function renderMappingTable(fileType) {
+            const data = mappingData[fileType];
+            if (!data) { tableContainer.innerHTML = '<p class="text-gray-500">Select a file to view its mappings.</p>'; return; }
+            tableTitle.textContent = `Ad-hoc Edits: ${mappingSelect.options[mappingSelect.selectedIndex].text.replace('Replace ', '')} Mappings`;
+            let tableHTML = `<table class="w-full text-left text-sm"><thead><tr class="bg-gray-100"><th class="p-3">Source Value</th><th class="p-3">Target Value</th><th class="p-3">Actions</th></tr></thead><tbody>`;
+            data.forEach(row => { tableHTML += `<tr><td class="p-3 border-b">${row.source}</td><td class="p-3 border-b">${row.target}</td><td class="p-3 border-b"><button class="edit-btn text-blue-600 hover:underline">Edit</button></td></tr>`; });
+            tableHTML += `</tbody></table>`;
+            tableContainer.innerHTML = tableHTML;
+        }
+
+        tableContainer.addEventListener('click', e => {
+            const row = e.target.closest('tr');
+            if (!row) return;
+            if (e.target.classList.contains('edit-btn')) {
+                const [sourceCell, targetCell, actionsCell] = row.cells;
+                row.dataset.originalSource = sourceCell.textContent; row.dataset.originalTarget = targetCell.textContent;
+                sourceCell.innerHTML = `<input type="text" class="editable-input" value="${sourceCell.textContent}">`;
+                targetCell.innerHTML = `<input type="text" class="editable-input" value="${targetCell.textContent}">`;
+                actionsCell.innerHTML = `<button class="save-btn text-green-600 hover:underline">Save</button> | <button class="cancel-btn text-red-600 hover:underline">Cancel</button>`;
+            } else if (e.target.classList.contains('save-btn')) {
+                const inputs = row.querySelectorAll('input');
+                row.cells[0].textContent = inputs[0].value; row.cells[1].textContent = inputs[1].value;
+                row.cells[2].innerHTML = `<button class="edit-btn text-blue-600 hover:underline">Edit</button>`;
+            } else if (e.target.classList.contains('cancel-btn')) {
+                 row.cells[0].textContent = row.dataset.originalSource; row.cells[1].textContent = row.dataset.originalTarget;
+                 row.cells[2].innerHTML = `<button class="edit-btn text-blue-600 hover:underline">Edit</button>`;
+            }
+        });
+        
+        addMappingBtn.addEventListener('click', () => {
+            const tableBody = tableContainer.querySelector('tbody');
+            if (!tableBody) return;
+            const newRow = tableBody.insertRow(0);
+            newRow.innerHTML = `<td class="p-3 border-b"><input type="text" class="editable-input" placeholder="New Source"></td><td class="p-3 border-b"><input type="text" class="editable-input" placeholder="New Target"></td><td class="p-3 border-b"><button class="save-btn text-green-600 hover:underline">Save</button> | <button class="cancel-btn text-red-600" onclick="this.closest('tr').remove()">Remove</button></td>`;
+        });
+
+        mappingSelect.addEventListener('change', e => {
+            if (e.target.value === 'new') {
+                newMappingNameContainer.classList.remove('hidden');
+                tableContainer.innerHTML = '<p class="text-gray-500 italic">Define mappings for the new file type after it has been uploaded.</p>';
+                tableTitle.textContent = "Ad-hoc Edits";
+            } else {
+                newMappingNameContainer.classList.add('hidden');
+                renderMappingTable(e.target.value);
+            }
+        });
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            showPage('dashboard');
+            renderMappingTable('ssoc');
+        });
+    </script>
+</body>
+</html>

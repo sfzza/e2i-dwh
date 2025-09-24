@@ -12,12 +12,35 @@ from e2i_api.apps.common.auth import (
     user_profile_view,
 )
 
+# User management views
+from e2i_api.apps.common.user_management_views import (
+    user_list_view,
+    user_create_view,
+    user_delete_view,
+    user_toggle_status_view,
+    user_update_view,
+)
+
+# Audit logs views
+from e2i_api.apps.common.audit_views import (
+    audit_logs_list_view,
+    audit_logs_create_view,
+    audit_logs_stats_view,
+)
+
+# Dashboard views
+from e2i_api.apps.common.dashboard_views import (
+    dashboard_metrics_view,
+    dashboard_activity_view,
+)
+
 # Existing ingestion views
 from e2i_api.apps.ingestion.views import (
     upload_view,
     presign_view,
     complete_view,
     upload_status_view,
+    upload_history_view,
 )
 
 # Template management views
@@ -62,12 +85,32 @@ urlpatterns = [
     path("auth/generate-api-key", generate_api_key_view, name="auth-generate-api-key"),
     path("auth/profile", user_profile_view, name="auth-profile"),
 
+    # =================== USER MANAGEMENT ENDPOINTS ===================
+    
+    path("users/", user_list_view, name="user-list"),
+    path("users/create", user_create_view, name="user-create"),
+    path("users/<uuid:user_id>/", user_update_view, name="user-update"),
+    path("users/<uuid:user_id>/delete", user_delete_view, name="user-delete"),
+    path("users/<uuid:user_id>/toggle-status", user_toggle_status_view, name="user-toggle-status"),
+
+    # =================== AUDIT LOGS ENDPOINTS ===================
+    
+    path("audit-logs/", audit_logs_list_view, name="audit-logs-list"),
+    path("audit-logs/create", audit_logs_create_view, name="audit-logs-create"),
+    path("audit-logs/stats/", audit_logs_stats_view, name="audit-logs-stats"),
+
+    # =================== DASHBOARD ENDPOINTS ===================
+    
+    path("dashboard/metrics/", dashboard_metrics_view, name="dashboard-metrics"),
+    path("dashboard/activity/", dashboard_activity_view, name="dashboard-activity"),
+
     # =================== INGESTION ENDPOINTS ===================
     
     # File Upload (authentication required)
     path("ingest/upload", upload_view, name="upload"),
     path("ingest/presign", presign_view, name="presign"),
     path("ingest/complete", complete_view, name="complete"),
+    path("ingest/uploads/", upload_history_view, name="upload-history"),
     path("ingest/uploads/<uuid:upload_id>/status", upload_status_view, name="upload-status"),
     
     # =================== TEMPLATE MANAGEMENT ===================

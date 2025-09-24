@@ -1,0 +1,329 @@
+---
+# Airflow Init Job
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: airflow-init
+  namespace: datawarehouse
+spec:
+  template:
+    spec:
+      containers:
+      - name: airflow-init
+        image: apache/airflow:2.8.1
+        command: ["bash", "-c"]
+        args:
+        - |
+          airflow db init && 
+          airflow users create --username airflow --password airflow --firstname Airflow --lastname Admin --role Admin --email airflow@example.com
+        env:
+        - name: AIRFLOW__CORE__EXECUTOR
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: AIRFLOW__CORE__EXECUTOR
+        - name: AIRFLOW__CORE__DAGS_FOLDER
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: AIRFLOW__CORE__DAGS_FOLDER
+        - name: AIRFLOW__CORE__LOAD_EXAMPLES
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: AIRFLOW__CORE__LOAD_EXAMPLES
+        - name: AIRFLOW__CORE__SQL_ALCHEMY_CONN
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: AIRFLOW__CORE__SQL_ALCHEMY_CONN
+        - name: AIRFLOW__API__AUTH_BACKENDS
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: AIRFLOW__API__AUTH_BACKENDS
+        - name: CLICKHOUSE_USER
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: CLICKHOUSE_USER
+        - name: CLICKHOUSE_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: CLICKHOUSE_PASSWORD
+        - name: CLICKHOUSE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: CLICKHOUSE_HOST
+        - name: CLICKHOUSE_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: CLICKHOUSE_PORT
+        - name: CLICKHOUSE_DB
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: CLICKHOUSE_DB
+        - name: TOKENIZATION_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: TOKENIZATION_ENDPOINT
+        - name: TOKENIZATION_API_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: TOKENIZATION_API_KEY
+      restartPolicy: OnFailure
+  backoffLimit: 3
+
+---
+# Airflow Webserver
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-webserver
+  namespace: datawarehouse
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow-webserver
+  template:
+    metadata:
+      labels:
+        app: airflow-webserver
+    spec:
+      initContainers:
+      - name: wait-for-postgres
+        image: postgres:16
+        command: ['sh', '-c', 'until pg_isready -h airflow-postgres -p 5432 -U airflow; do echo waiting for postgres; sleep 2; done;']
+      containers:
+      - name: webserver
+        image: apache/airflow:2.8.1
+        ports:
+        - containerPort: 8080
+        command: ["webserver"]
+        env:
+        - name: AIRFLOW__CORE__EXECUTOR
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: AIRFLOW__CORE__EXECUTOR
+        - name: AIRFLOW__CORE__DAGS_FOLDER
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: AIRFLOW__CORE__DAGS_FOLDER
+        - name: AIRFLOW__CORE__LOAD_EXAMPLES
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: AIRFLOW__CORE__LOAD_EXAMPLES
+        - name: AIRFLOW__CORE__SQL_ALCHEMY_CONN
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: AIRFLOW__CORE__SQL_ALCHEMY_CONN
+        - name: AIRFLOW__API__AUTH_BACKENDS
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: AIRFLOW__API__AUTH_BACKENDS
+        - name: CLICKHOUSE_USER
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: CLICKHOUSE_USER
+        - name: CLICKHOUSE_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: CLICKHOUSE_PASSWORD
+        - name: CLICKHOUSE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: CLICKHOUSE_HOST
+        - name: CLICKHOUSE_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: CLICKHOUSE_PORT
+        - name: CLICKHOUSE_DB
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: CLICKHOUSE_DB
+        - name: TOKENIZATION_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: TOKENIZATION_ENDPOINT
+        - name: TOKENIZATION_API_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: TOKENIZATION_API_KEY
+        volumeMounts:
+        - name: dags
+          mountPath: /opt/airflow/dags
+        - name: logs
+          mountPath: /opt/airflow/logs
+        - name: plugins
+          mountPath: /opt/airflow/plugins
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: dags
+        configMap:
+          name: airflow-dags
+      - name: logs
+        emptyDir: {}
+      - name: plugins
+        emptyDir: {}
+
+---
+# Airflow Scheduler
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-scheduler
+  namespace: datawarehouse
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow-scheduler
+  template:
+    metadata:
+      labels:
+        app: airflow-scheduler
+    spec:
+      initContainers:
+      - name: wait-for-postgres
+        image: postgres:16
+        command: ['sh', '-c', 'until pg_isready -h airflow-postgres -p 5432 -U airflow; do echo waiting for postgres; sleep 2; done;']
+      - name: wait-for-tokenization
+        image: curlimages/curl:latest
+        command: ['sh', '-c', 'until curl -f http://tokenization-service:8004/api/v1/health; do echo waiting for tokenization service; sleep 2; done;']
+      containers:
+      - name: scheduler
+        image: apache/airflow:2.8.1
+        command: ["scheduler"]
+        env:
+        - name: AIRFLOW__CORE__EXECUTOR
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: AIRFLOW__CORE__EXECUTOR
+        - name: AIRFLOW__CORE__DAGS_FOLDER
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: AIRFLOW__CORE__DAGS_FOLDER
+        - name: AIRFLOW__CORE__LOAD_EXAMPLES
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: AIRFLOW__CORE__LOAD_EXAMPLES
+        - name: AIRFLOW__CORE__SQL_ALCHEMY_CONN
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: AIRFLOW__CORE__SQL_ALCHEMY_CONN
+        - name: AIRFLOW__API__AUTH_BACKENDS
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: AIRFLOW__API__AUTH_BACKENDS
+        - name: CLICKHOUSE_USER
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: CLICKHOUSE_USER
+        - name: CLICKHOUSE_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: CLICKHOUSE_PASSWORD
+        - name: CLICKHOUSE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: CLICKHOUSE_HOST
+        - name: CLICKHOUSE_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: CLICKHOUSE_PORT
+        - name: CLICKHOUSE_DB
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: CLICKHOUSE_DB
+        - name: TOKENIZATION_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: TOKENIZATION_ENDPOINT
+        - name: TOKENIZATION_API_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: airflow-config
+              key: TOKENIZATION_API_KEY
+        volumeMounts:
+        - name: dags
+          mountPath: /opt/airflow/dags
+        - name: logs
+          mountPath: /opt/airflow/logs
+        - name: plugins
+          mountPath: /opt/airflow/plugins
+        livenessProbe:
+          exec:
+            command:
+            - airflow
+            - jobs
+            - check
+            - --job-type
+            - SchedulerJob
+            - --hostname
+            - $(hostname)
+          initialDelaySeconds: 60
+          periodSeconds: 30
+      volumes:
+      - name: dags
+        configMap:
+          name: airflow-dags
+      - name: logs
+        emptyDir: {}
+      - name: plugins
+        emptyDir: {}
+
+---
+# Airflow Webserver Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow-webserver
+  namespace: datawarehouse
+spec:
+  selector:
+    app: airflow-webserver
+  ports:
+  - port: 8080
+    targetPort: 8080
+  type: ClusterIP

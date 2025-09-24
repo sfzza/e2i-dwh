@@ -1,0 +1,434 @@
+---
+# Orchestrator Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+  namespace: datawarehouse
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: orchestrator
+  template:
+    metadata:
+      labels:
+        app: orchestrator
+    spec:
+      initContainers:
+      - name: wait-for-postgres
+        image: postgres:16
+        command: ['sh', '-c', 'until pg_isready -h orchestrator-postgres -p 5432 -U e2i_user; do echo waiting for postgres; sleep 2; done;']
+      containers:
+      - name: orchestrator
+        image: your-registry/e2i-orchestrator:latest  # Update with your actual image
+        ports:
+        - containerPort: 8002
+        command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002", "--reload"]
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-config
+              key: DATABASE_URL
+        - name: USE_LOCAL_WORKER
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-config
+              key: USE_LOCAL_WORKER
+        - name: AIRFLOW__BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-config
+              key: AIRFLOW__BASE_URL
+        - name: AIRFLOW__USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-config
+              key: AIRFLOW__USERNAME
+        - name: AIRFLOW__PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-config
+              key: AIRFLOW__PASSWORD
+        - name: DISABLE_HMAC
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-config
+              key: DISABLE_HMAC
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 10
+          periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orchestrator
+  namespace: datawarehouse
+spec:
+  selector:
+    app: orchestrator
+  ports:
+  - port: 8002
+    targetPort: 8002
+  type: ClusterIP
+
+---
+# Django Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: django
+  namespace: datawarehouse
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: django
+  template:
+    metadata:
+      labels:
+        app: django
+    spec:
+      initContainers:
+      - name: wait-for-postgres
+        image: postgres:16
+        command: ['sh', '-c', 'until pg_isready -h orchestrator-postgres -p 5432 -U e2i_user; do echo waiting for postgres; sleep 2; done;']
+      - name: wait-for-orchestrator
+        image: curlimages/curl:latest
+        command: ['sh', '-c', 'until curl -f http://orchestrator:8002/health; do echo waiting for orchestrator; sleep 2; done;']
+      - name: wait-for-minio
+        image: curlimages/curl:latest
+        command: ['sh', '-c', 'until curl -f http://minio:9000/minio/health/live; do echo waiting for minio; sleep 2; done;']
+      - name: wait-for-clickhouse
+        image: curlimages/curl:latest
+        command: ['sh', '-c', 'until curl -f http://clickhouse:8123/ping; do echo waiting for clickhouse; sleep 2; done;']
+      - name: wait-for-tokenization
+        image: curlimages/curl:latest
+        command: ['sh', '-c', 'until curl -f http://tokenization-service:8004/api/v1/health; do echo waiting for tokenization service; sleep 2; done;']
+      - name: wait-for-redis
+        image: redis:7-alpine
+        command: ['sh', '-c', 'until redis-cli -h redis ping; do echo waiting for redis; sleep 2; done;']
+      containers:
+      - name: django
+        image: your-registry/e2i-django:latest  # Update with your actual image
+        ports:
+        - containerPort: 8001
+        command: ["python", "manage.py", "runserver", "0.0.0.0:8001"]
+        env:
+        - name: DJANGO_DB_ENGINE
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: DJANGO_DB_ENGINE
+        - name: DJANGO_DB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: DJANGO_DB_NAME
+        - name: DJANGO_DB_USER
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: DJANGO_DB_USER
+        - name: DJANGO_DB_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: DJANGO_DB_PASSWORD
+        - name: DJANGO_DB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: DJANGO_DB_HOST
+        - name: DJANGO_DB_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: DJANGO_DB_PORT
+        - name: MINIO_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: MINIO_ENDPOINT
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: MINIO_ACCESS_KEY
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: MINIO_SECRET_KEY
+        - name: MINIO_BUCKET
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: MINIO_BUCKET
+        - name: ORCHESTRATOR_URL
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: ORCHESTRATOR_URL
+        - name: DJANGO_DEBUG
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: DJANGO_DEBUG
+        - name: CLICKHOUSE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: CLICKHOUSE_HOST
+        - name: CLICKHOUSE_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: CLICKHOUSE_PORT
+        - name: CLICKHOUSE_DB
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: CLICKHOUSE_DB
+        - name: CLICKHOUSE_USER
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: CLICKHOUSE_USER
+        - name: CLICKHOUSE_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: CLICKHOUSE_PASSWORD
+        - name: REPORTING_EXPORT_DIR
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: REPORTING_EXPORT_DIR
+        - name: REPORTING_EXPORT_TTL
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: REPORTING_EXPORT_TTL
+        - name: REPORTING_MAX_EXPORT_ROWS
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: REPORTING_MAX_EXPORT_ROWS
+        - name: DETOKENIZATION_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: DETOKENIZATION_ENDPOINT
+        - name: DETOKENIZATION_API_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: DETOKENIZATION_API_KEY
+        - name: DETOKENIZATION_TIMEOUT
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: DETOKENIZATION_TIMEOUT
+        volumeMounts:
+        - name: exports
+          mountPath: /app/exports
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 10
+          periodSeconds: 5
+      volumes:
+      - name: exports
+        persistentVolumeClaim:
+          claimName: exports-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: django
+  namespace: datawarehouse
+spec:
+  selector:
+    app: django
+  ports:
+  - port: 8001
+    targetPort: 8001
+  type: ClusterIP
+
+---
+# Reporting Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reporting
+  namespace: datawarehouse
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reporting
+  template:
+    metadata:
+      labels:
+        app: reporting
+    spec:
+      initContainers:
+      - name: wait-for-postgres
+        image: postgres:16
+        command: ['sh', '-c', 'until pg_isready -h orchestrator-postgres -p 5432 -U e2i_user; do echo waiting for postgres; sleep 2; done;']
+      - name: wait-for-clickhouse
+        image: curlimages/curl:latest
+        command: ['sh', '-c', 'until curl -f http://clickhouse:8123/ping; do echo waiting for clickhouse; sleep 2; done;']
+      - name: wait-for-tokenization
+        image: curlimages/curl:latest
+        command: ['sh', '-c', 'until curl -f http://tokenization-service:8004/api/v1/health; do echo waiting for tokenization service; sleep 2; done;']
+      containers:
+      - name: reporting
+        image: your-registry/e2i-django:latest  # Update with your actual image
+        ports:
+        - containerPort: 8003
+        command: ["python", "manage.py", "runserver", "0.0.0.0:8003"]
+        env:
+        - name: DJANGO_DB_ENGINE
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: DJANGO_DB_ENGINE
+        - name: DJANGO_DB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: DJANGO_DB_NAME
+        - name: DJANGO_DB_USER
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: DJANGO_DB_USER
+        - name: DJANGO_DB_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: DJANGO_DB_PASSWORD
+        - name: DJANGO_DB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: DJANGO_DB_HOST
+        - name: DJANGO_DB_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: DJANGO_DB_PORT
+        - name: DJANGO_DEBUG
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: DJANGO_DEBUG
+        - name: CLICKHOUSE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: CLICKHOUSE_HOST
+        - name: CLICKHOUSE_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: CLICKHOUSE_PORT
+        - name: CLICKHOUSE_DB
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: CLICKHOUSE_DB
+        - name: CLICKHOUSE_USER
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: CLICKHOUSE_USER
+        - name: CLICKHOUSE_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: CLICKHOUSE_PASSWORD
+        - name: REPORTING_EXPORT_DIR
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: REPORTING_EXPORT_DIR
+        - name: REPORTING_EXPORT_TTL
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: REPORTING_EXPORT_TTL
+        - name: REPORTING_MAX_EXPORT_ROWS
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: REPORTING_MAX_EXPORT_ROWS
+        - name: DETOKENIZATION_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: DETOKENIZATION_ENDPOINT
+        - name: DETOKENIZATION_API_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: DETOKENIZATION_API_KEY
+        - name: DETOKENIZATION_TIMEOUT
+          valueFrom:
+            configMapKeyRef:
+              name: django-config
+              key: DETOKENIZATION_TIMEOUT
+        volumeMounts:
+        - name: exports
+          mountPath: /app/exports
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8003
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8003
+          initialDelaySeconds: 10
+          periodSeconds: 5
+      volumes:
+      - name: exports
+        persistentVolumeClaim:
+          claimName: exports-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reporting
+  namespace: datawarehouse
+spec:
+  selector:
+    app: reporting
+  ports:
+  - port: 8003
+    targetPort: 8003
+  type: ClusterIP

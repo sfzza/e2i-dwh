@@ -1,0 +1,65 @@
+---
+# Railway-specific patches
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+  namespace: datawarehouse
+spec:
+  template:
+    spec:
+      containers:
+      - name: orchestrator
+        image: railway.dockerfile/orchestrator:latest  # Railway will build this
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: django
+  namespace: datawarehouse
+spec:
+  template:
+    spec:
+      containers:
+      - name: django
+        image: railway.dockerfile/django:latest  # Railway will build this
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reporting
+  namespace: datawarehouse
+spec:
+  template:
+    spec:
+      containers:
+      - name: reporting
+        image: railway.dockerfile/django:latest  # Railway will build this
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tokenization-service
+  namespace: datawarehouse
+spec:
+  template:
+    spec:
+      containers:
+      - name: tokenization-service
+        image: railway.dockerfile/tokenization-service:latest  # Railway will build this
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: datawarehouse
+spec:
+  template:
+    spec:
+      containers:
+      - name: frontend
+        image: railway.dockerfile/frontend:latest  # Railway will build this

@@ -106,3 +106,82 @@ class UserSession(models.Model):
         self.expires_at = timezone.now() + timedelta(days=7)
         self.last_accessed = timezone.now()
         self.save(update_fields=['expires_at', 'last_accessed'])
+
+
+class AuditLog(models.Model):
+    """Track user actions and system events for audit purposes"""
+    ACTION_CHOICES = (
+        ('login', 'Login'),
+        ('logout', 'Logout'),
+        ('upload', 'File Upload'),
+        ('download', 'File Download'),
+        ('create', 'Create'),
+        ('update', 'Update'),
+        ('delete', 'Delete'),
+        ('view', 'View'),
+        ('export', 'Export'),
+        ('import', 'Import'),
+        ('template_create', 'Template Create'),
+        ('template_update', 'Template Update'),
+        ('template_delete', 'Template Delete'),
+        ('user_create', 'User Create'),
+        ('user_update', 'User Update'),
+        ('user_delete', 'User Delete'),
+        ('user_toggle_status', 'User Toggle Status'),
+        ('api_key_generate', 'API Key Generate'),
+        ('data_ingestion', 'Data Ingestion'),
+        ('data_validation', 'Data Validation'),
+        ('data_transformation', 'Data Transformation'),
+        ('system_error', 'System Error'),
+    )
+    
+    STATUS_CHOICES = (
+        ('success', 'Success'),
+        ('failure', 'Failure'),
+        ('error', 'Error'),
+        ('warning', 'Warning'),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='audit_logs')
+    username = models.CharField(max_length=150, blank=True, null=True)  # Store username even if user is deleted
+    action = models.CharField(max_length=50, choices=ACTION_CHOICES)
+    resource = models.CharField(max_length=255, blank=True, null=True)  # What was acted upon
+    resource_id = models.CharField(max_length=100, blank=True, null=True)  # ID of the resource
+    details = models.JSONField(default=dict, blank=True)  # Additional details about the action
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='success')
+    ip_address = models.GenericIPAddressField(blank=True, null=True)
+    user_agent = models.TextField(blank=True, null=True)
+    timestamp = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'audit_logs'
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['user'], name='idx_audit_logs_user'),
+            models.Index(fields=['username'], name='idx_audit_logs_username'),
+            models.Index(fields=['action'], name='idx_audit_logs_action'),
+            models.Index(fields=['status'], name='idx_audit_logs_status'),
+            models.Index(fields=['timestamp'], name='idx_audit_logs_timestamp'),
+            models.Index(fields=['resource'], name='idx_audit_logs_resource'),
+        ]
+
+    def __str__(self):
+        return f"{self.username or 'System'}: {self.action} - {self.resource or 'N/A'} ({self.status})"
+
+    @classmethod
+    def log_action(cls, user=None, username=None, action=None, resource=None, resource_id=None, 
+                   details=None, status='success', ip_address=None, user_agent=None):
+        """Convenience method to create audit log entries"""
+        return cls.objects.create(
+            user=user,
+            username=username or (user.username if user else None),
+            action=action,
+            resource=resource,
+            resource_id=resource_id,
+            details=details or {},
+            status=status,
+            ip_address=ip_address,
+            user_agent=user_agent
+        )

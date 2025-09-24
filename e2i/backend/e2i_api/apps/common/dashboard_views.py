@@ -1,0 +1,207 @@
+# e2i_api/apps/common/dashboard_views.py - Dashboard metrics API endpoints
+
+import json
+import logging
+from django.http import JsonResponse, HttpRequest
+from django.views.decorators.csrf import csrf_exempt
+from django.db.models import Count, Q
+from django.utils import timezone
+from datetime import datetime, timedelta
+
+from .models import AuditLog, User
+from .auth import user_access_required, _json_error, get_current_user
+
+# Import ingestion models for file processing metrics
+try:
+    from e2i_api.apps.ingestion.models import Upload, ValidationReport
+except ImportError:
+    Upload = None
+    ValidationReport = None
+
+logger = logging.getLogger(__name__)
+
+
+@user_access_required
+def dashboard_metrics_view(request: HttpRequest):
+    """
+    GET /dashboard/metrics/ - Get dashboard metrics (Authenticated users)
+    """
+    if request.method != 'GET':
+        return _json_error("METHOD_NOT_ALLOWED", "Only GET allowed", 405)
+
+    try:
+        current_user = get_current_user(request)
+        if not current_user:
+            return _json_error("AUTHENTICATION_REQUIRED", "Authentication required", 401)
+
+        # Get date ranges
+        now = timezone.now()
+        this_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        last_month_start = (this_month_start - timedelta(days=1)).replace(day=1)
+        last_month_end = this_month_start - timedelta(seconds=1)
+        this_week_start = now - timedelta(days=now.weekday())
+        this_week_start = this_week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # Initialize metrics
+        metrics = {
+            'files_processed_month': 0,
+            'files_processed_last_month': 0,
+            'files_processed_change': 0,
+            'pipelines_running': 0,
+            'system_alerts': 0,
+            'reports_generated': 0,
+            'reports_generated_week': 0,
+            'total_users': 0,
+            'active_users_today': 0,
+            'recent_uploads': [],
+            'system_status': 'operational'
+        }
+
+        # Files Processed (Month) - from Upload model
+        if Upload:
+            # Current month uploads
+            current_month_uploads = Upload.objects.filter(
+                created_at__gte=this_month_start
+            )
+            
+            # Filter by user if not admin
+            if current_user.role != 'admin':
+                current_month_uploads = current_month_uploads.filter(user_id=current_user.id)
+            
+            metrics['files_processed_month'] = current_month_uploads.count()
+
+            # Last month uploads for comparison
+            last_month_uploads = Upload.objects.filter(
+                created_at__gte=last_month_start,
+                created_at__lte=last_month_end
+            )
+            
+            if current_user.role != 'admin':
+                last_month_uploads = last_month_uploads.filter(user_id=current_user.id)
+            
+            metrics['files_processed_last_month'] = last_month_uploads.count()
+
+            # Calculate percentage change
+            if metrics['files_processed_last_month'] > 0:
+                change = ((metrics['files_processed_month'] - metrics['files_processed_last_month']) / 
+                         metrics['files_processed_last_month']) * 100
+                metrics['files_processed_change'] = round(change, 1)
+
+            # Pipelines Running - count uploads in processing states
+            processing_states = ['pending', 'uploaded', 'mapped', 'transformed']
+            running_pipelines = Upload.objects.filter(status__in=processing_states)
+            
+            if current_user.role != 'admin':
+                running_pipelines = running_pipelines.filter(user_id=current_user.id)
+            
+            metrics['pipelines_running'] = running_pipelines.count()
+
+            # Recent uploads for dashboard
+            recent_uploads = Upload.objects.select_related('validation').order_by('-created_at')[:5]
+            
+            if current_user.role != 'admin':
+                recent_uploads = recent_uploads.filter(user_id=current_user.id)
+            
+            metrics['recent_uploads'] = [
+                {
+                    'id': str(upload.id),
+                    'file_name': upload.file_name,
+                    'status': upload.status,
+                    'created_at': upload.created_at.isoformat(),
+                    'record_count': upload.validation.total_rows if upload.validation else None
+                }
+                for upload in recent_uploads
+            ]
+
+        # System Alerts - count failed uploads and system errors
+        if Upload:
+            failed_uploads = Upload.objects.filter(status='failed')
+            if current_user.role != 'admin':
+                failed_uploads = failed_uploads.filter(user_id=current_user.id)
+            metrics['system_alerts'] = failed_uploads.count()
+
+        # Reports Generated - count completed uploads
+        if Upload:
+            completed_uploads = Upload.objects.filter(status='completed')
+            if current_user.role != 'admin':
+                completed_uploads = completed_uploads.filter(user_id=current_user.id)
+            metrics['reports_generated'] = completed_uploads.count()
+
+            # Reports generated this week
+            week_reports = completed_uploads.filter(created_at__gte=this_week_start)
+            metrics['reports_generated_week'] = week_reports.count()
+
+        # User metrics (admin only)
+        if current_user.role == 'admin':
+            metrics['total_users'] = User.objects.filter(is_active=True).count()
+            
+            # Active users today (users with audit logs today)
+            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            active_users = AuditLog.objects.filter(
+                timestamp__gte=today_start
+            ).values('username').distinct().count()
+            metrics['active_users_today'] = active_users
+
+        # System status
+        if metrics['system_alerts'] > 0:
+            metrics['system_status'] = 'warning'
+        elif metrics['pipelines_running'] > 5:
+            metrics['system_status'] = 'busy'
+        else:
+            metrics['system_status'] = 'operational'
+
+        return JsonResponse({
+            'success': True,
+            'metrics': metrics,
+            'user_role': current_user.role,
+            'generated_at': now.isoformat()
+        })
+
+    except Exception as e:
+        logger.error(f"Error fetching dashboard metrics: {e}")
+        return _json_error("INTERNAL_SERVER_ERROR", f"Failed to fetch dashboard metrics: {e}", 500)
+
+
+@user_access_required
+def dashboard_activity_view(request: HttpRequest):
+    """
+    GET /dashboard/activity/ - Get recent activity for dashboard (Authenticated users)
+    """
+    if request.method != 'GET':
+        return _json_error("METHOD_NOT_ALLOWED", "Only GET allowed", 405)
+
+    try:
+        current_user = get_current_user(request)
+        if not current_user:
+            return _json_error("AUTHENTICATION_REQUIRED", "Authentication required", 401)
+
+        # Get recent audit logs
+        recent_activity = AuditLog.objects.all().order_by('-timestamp')[:10]
+        
+        # Filter by user if not admin
+        if current_user.role != 'admin':
+            recent_activity = recent_activity.filter(
+                Q(user=current_user) | Q(username=current_user.username)
+            )
+
+        activity_data = []
+        for log in recent_activity:
+            activity_data.append({
+                'id': str(log.id),
+                'username': log.username or 'System',
+                'action': log.action,
+                'resource': log.resource,
+                'status': log.status,
+                'timestamp': log.timestamp.isoformat(),
+                'ip_address': log.ip_address
+            })
+
+        return JsonResponse({
+            'success': True,
+            'activity': activity_data,
+            'total_count': len(activity_data)
+        })
+
+    except Exception as e:
+        logger.error(f"Error fetching dashboard activity: {e}")
+        return _json_error("INTERNAL_SERVER_ERROR", f"Failed to fetch dashboard activity: {e}", 500)

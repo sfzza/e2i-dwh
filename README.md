@@ -23,21 +23,35 @@ This project includes a complete data warehouse stack with the following compone
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### Option 1: Railway Single Service Deployment (Recommended)
+
+**Prerequisites:**
+- Railway account
+- GitHub repository connected to Railway
+
+**Deploy to Railway:**
+1. Connect your GitHub repository to Railway
+2. Railway will automatically detect the configuration files
+3. Set environment variables in Railway dashboard
+4. Deploy automatically
+
+**Configuration Files Created:**
+- `start.sh` - Startup script
+- `railway.json` - Railway configuration
+- `Dockerfile` - Main Docker build file
+
+### Option 2: Kubernetes Multi-Service Deployment
+
+**Prerequisites:**
 - Railway account with Kubernetes support
 - `kubectl` configured for Railway cluster
 - `kustomize` installed
 - Docker images built and pushed to accessible registry
 
-### Deploy to Railway
-
+**Deploy to Railway:**
 ```bash
 cd e2i/infra/k8s
-
-# Make deployment script executable
 chmod +x railway-deploy.sh
-
-# Deploy to Railway
 ./railway-deploy.sh deploy
 ```
 
@@ -78,6 +92,10 @@ kubectl port-forward service/metabase 8083:3000 -n datawarehouse
 ├── tokenization-service/         # Data tokenization service
 ├── etl-platform/                # ETL platform components
 ├── docker-compose.yml           # Original Docker Compose setup
+├── Dockerfile                   # Main Railway Dockerfile
+├── start.sh                     # Railway startup script
+├── railway.json                 # Railway configuration
+├── RAILWAY_DEPLOYMENT.md        # Railway deployment guide
 └── README.md                    # This file
 ```
 

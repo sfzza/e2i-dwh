@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- namespace.yaml
+- configmaps.yaml
+- configmaps-additional.yaml
+- secrets.yaml
+- persistent-volumes.yaml
+- databases.yaml
+- core-services.yaml
+- tokenization.yaml
+- airflow.yaml
+- backend.yaml
+- frontend.yaml
+- ingress.yaml
+
+commonLabels:
+  app: datawarehouse
+  version: v1.0.0
+
+namespace: datawarehouse

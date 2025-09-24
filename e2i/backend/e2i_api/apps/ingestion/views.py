@@ -426,3 +426,90 @@ def upload_status_view(request: HttpRequest, upload_id: str):
         return _json_error("FORBIDDEN", "Access denied", 403)
         
     return JsonResponse(_serialize_upload(upload))
+
+
+@user_access_required
+def upload_history_view(request: HttpRequest):
+    """
+    Return the upload history for the current user.
+    Requires authentication (admin or user).
+    """
+    if request.method != "GET":
+        return HttpResponseNotAllowed(["GET"])
+    
+    current_user = get_current_user(request)
+    if not current_user:
+        return _json_error("AUTHENTICATION_REQUIRED", "Authentication required", 401)
+    
+    try:
+        # Get query parameters for pagination and filtering
+        page = int(request.GET.get('page', 1))
+        limit = int(request.GET.get('limit', 20))
+        status_filter = request.GET.get('status', None)
+        
+        # Build query
+        query = Upload.objects.select_related('validation', 'template_info__selected_template')
+        
+        # Filter by user (admin can see all, users see only their own)
+        if current_user.role != 'admin':
+            query = query.filter(user_id=current_user.id)
+        
+        # Filter by status if provided
+        if status_filter:
+            query = query.filter(status=status_filter)
+        
+        # Order by creation date (newest first)
+        query = query.order_by('-created_at')
+        
+        # Apply pagination
+        offset = (page - 1) * limit
+        uploads = query[offset:offset + limit]
+        
+        # Serialize uploads
+        uploads_data = []
+        for upload in uploads:
+            upload_data = {
+                'id': str(upload.id),
+                'file_name': upload.file_name,
+                'data_type': upload.dataset or 'Unknown',
+                'status': upload.status,
+                'record_count': None,
+                'file_size': upload.bytes,
+                'content_type': upload.content_type,
+                'created_at': upload.created_at.isoformat(),
+                'updated_at': upload.updated_at.isoformat(),
+                'error': upload.error,
+                'validated_at': upload.validated_at.isoformat() if upload.validated_at else None,
+                'orchestrator_triggered_at': upload.orchestrator_triggered_at.isoformat() if upload.orchestrator_triggered_at else None,
+                'pipeline_run_id': upload.pipeline_run_id,
+            }
+            
+            # Get record count from validation report if available
+            if hasattr(upload, 'validation') and upload.validation:
+                upload_data['record_count'] = upload.validation.total_rows
+            
+            # Get template info if available
+            if hasattr(upload, 'template_info') and upload.template_info:
+                template = upload.template_info.selected_template
+                if template:
+                    upload_data['template_name'] = template.name
+                    upload_data['template_id'] = str(template.id)
+            
+            uploads_data.append(upload_data)
+        
+        # Get total count for pagination
+        total_count = query.count()
+        
+        return JsonResponse({
+            'success': True,
+            'uploads': uploads_data,
+            'pagination': {
+                'page': page,
+                'limit': limit,
+                'total': total_count,
+                'pages': (total_count + limit - 1) // limit
+            }
+        })
+        
+    except Exception as e:
+        return _json_error("INTERNAL_ERROR", f"Failed to fetch upload history: {str(e)}", 500)

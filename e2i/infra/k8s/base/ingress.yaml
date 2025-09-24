@@ -1,0 +1,65 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: datawarehouse-ingress
+  namespace: datawarehouse
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: your-domain.com  # Replace with your actual domain
+    http:
+      paths:
+      - path: /airflow
+        pathType: Prefix
+        backend:
+          service:
+            name: airflow-webserver
+            port:
+              number: 8080
+      - path: /api/v1
+        pathType: Prefix
+        backend:
+          service:
+            name: django
+            port:
+              number: 8001
+      - path: /orchestrator
+        pathType: Prefix
+        backend:
+          service:
+            name: orchestrator
+            port:
+              number: 8002
+      - path: /reporting
+        pathType: Prefix
+        backend:
+          service:
+            name: reporting
+            port:
+              number: 8003
+      - path: /tokenization
+        pathType: Prefix
+        backend:
+          service:
+            name: tokenization-service
+            port:
+              number: 8004
+      - path: /metabase
+        pathType: Prefix
+        backend:
+          service:
+            name: metabase
+            port:
+              number: 3000
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend
+            port:
+              number: 80
