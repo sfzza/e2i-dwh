@@ -40,11 +40,35 @@ python manage.py migrate
 
 echo "🔧 Building and collecting static files..."
 
+# Quick health check test
+echo "🔍 Testing Django startup..."
+python manage.py check --deploy || {
+    echo "❌ Django check failed, but continuing with deployment"
+}
+
 # Build React frontend if package.json exists
 if [ -f "/app/e2i/frontend/package.json" ]; then
     echo "📦 Building React frontend..."
     cd /app/e2i/frontend
-    npm run build
+    
+    # Install dependencies if node_modules doesn't exist
+    if [ ! -d "node_modules" ]; then
+        echo "📥 Installing React dependencies..."
+        npm install || {
+            echo "❌ Failed to install React dependencies"
+            echo "📁 Trying to install react-scripts globally..."
+            npm install -g react-scripts || echo "⚠️  Global install also failed, continuing without React build"
+        }
+    fi
+    
+    # Build React app
+    echo "🔨 Building React app..."
+    npm run build || {
+        echo "❌ React build failed, continuing without React frontend"
+        echo "📝 Django will serve fallback template instead"
+    }
+    
+    # Return to app root
     cd /app
     
     # Copy React build to Django static files
@@ -56,6 +80,8 @@ else
     echo "⚠️  React frontend package.json not found at /app/e2i/frontend/package.json"
     echo "📁 Available files in /app/e2i/:"
     ls -la /app/e2i/ || echo "e2i directory not found"
+    echo "📁 Available files in /app/:"
+    ls -la /app/ || echo "app directory not found"
 fi
 
 echo "🔧 Collecting Django static files..."
