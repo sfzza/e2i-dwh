@@ -41,19 +41,21 @@ python manage.py migrate
 echo "🔧 Building and collecting static files..."
 
 # Build React frontend if package.json exists
-if [ -f "e2i/frontend/package.json" ]; then
+if [ -f "/app/e2i/frontend/package.json" ]; then
     echo "📦 Building React frontend..."
-    cd e2i/frontend
+    cd /app/e2i/frontend
     npm run build
-    cd ../..
+    cd /app
     
     # Copy React build to Django static files
     echo "📋 Copying React build to Django static files..."
-    mkdir -p e2i/backend/e2i_api/staticfiles
-    cp -r e2i/frontend/build/* e2i/backend/e2i_api/staticfiles/
+    mkdir -p /app/e2i/backend/e2i_api/staticfiles
+    cp -r /app/e2i/frontend/build/* /app/e2i/backend/e2i_api/staticfiles/
     echo "✅ React frontend integrated with Django"
 else
-    echo "⚠️  React frontend package.json not found, skipping build"
+    echo "⚠️  React frontend package.json not found at /app/e2i/frontend/package.json"
+    echo "📁 Available files in /app/e2i/:"
+    ls -la /app/e2i/ || echo "e2i directory not found"
 fi
 
 echo "🔧 Collecting Django static files..."

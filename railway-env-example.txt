@@ -5,7 +5,7 @@
 DJANGO_SETTINGS_MODULE=e2i_api.settings
 DJANGO_DEBUG=False
 DJANGO_SECRET_KEY=your-secret-key-here-change-in-production
-DJANGO_ALLOWED_HOSTS=your-app.railway.app,localhost
+DJANGO_ALLOWED_HOSTS=your-app.railway.app,*.railway.app,healthcheck.railway.app
 
 # Database (Railway PostgreSQL addon will provide these automatically)
 # DATABASE_URL is automatically provided by Railway PostgreSQL addon

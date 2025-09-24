@@ -29,7 +29,7 @@ SECRET_KEY = os.getenv(
 DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() == "true"
 
 ALLOWED_HOSTS = (
-    os.getenv("DJANGO_ALLOWED_HOSTS", "*.railway.app").split(",") if not DEBUG else ["*"]
+    os.getenv("DJANGO_ALLOWED_HOSTS", "*.railway.app,healthcheck.railway.app").split(",") if not DEBUG else ["*"]
 )
 
 # ---------------------------------------------------------------------
