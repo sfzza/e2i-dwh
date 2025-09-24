@@ -12,6 +12,12 @@ export DJANGO_SETTINGS_MODULE=e2i_api.settings
 export PYTHONPATH=/app
 export DJANGO_DEBUG=False
 
+# Debug Railway environment
+echo "🔍 Railway Environment Debug:"
+echo "PORT: $PORT"
+echo "RAILWAY_PUBLIC_DOMAIN: $RAILWAY_PUBLIC_DOMAIN"
+echo "RAILWAY_STATIC_URL: $RAILWAY_STATIC_URL"
+
 # Create necessary directories
 echo "📁 Creating necessary directories..."
 mkdir -p /app/exports
@@ -35,7 +41,16 @@ python manage.py migrate
 echo "🔧 Collecting static files..."
 python manage.py collectstatic --noinput
 
-echo "🌐 Starting Django development server..."
-python manage.py runserver 0.0.0.0:$PORT
+echo "🌐 Starting Django server..."
+echo "📡 Using PORT: $PORT"
+
+# Use production server for Railway
+if command -v gunicorn &> /dev/null; then
+    echo "🚀 Starting with Gunicorn (Production)"
+    gunicorn --bind 0.0.0.0:$PORT --workers 3 e2i_api.wsgi:application
+else
+    echo "🚀 Starting with Django development server"
+    python manage.py runserver 0.0.0.0:$PORT
+fi
 
 echo "✅ E2I Data Warehouse started successfully!"
