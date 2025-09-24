@@ -9,9 +9,9 @@ from django.views.decorators.http import require_http_methods
 # Serve React frontend from root
 @require_http_methods(["GET"])
 def root_view(request):
-    # Serve the React app's index.html
+    # Try to serve the React app first
     try:
-        from django.http import FileResponse
+        from django.http import HttpResponse
         import os
         from django.conf import settings
         
@@ -19,43 +19,35 @@ def root_view(request):
         index_path = os.path.join(settings.STATIC_ROOT, 'index.html')
         
         if os.path.exists(index_path):
-            return FileResponse(open(index_path, 'rb'), content_type='text/html')
-        else:
-            # Fallback if React app not found
-            return JsonResponse({
-                "message": "E2I Data Warehouse",
-                "version": "1.0.0",
-                "status": "running",
-                "frontend": "React app not found, serving API info",
-                "endpoints": {
-                    "admin": "/admin/",
-                    "api": "/api/",
-                    "health": "/health/",
-                    "auth": "/auth/",
-                    "dashboard": "/dashboard/",
-                    "templates": "/templates/",
-                    "ingestion": "/ingest/",
-                    "reports": "/api/reports/"
-                }
-            })
-    except Exception as e:
-        # Fallback to JSON response
-        return JsonResponse({
-            "message": "E2I Data Warehouse API",
-            "version": "1.0.0",
-            "status": "running",
-            "error": str(e),
-            "endpoints": {
-                "admin": "/admin/",
-                "api": "/api/",
-                "health": "/health/",
-                "auth": "/auth/",
-                "dashboard": "/dashboard/",
-                "templates": "/templates/",
-                "ingestion": "/ingest/",
-                "reports": "/api/reports/"
-            }
-        })
+            with open(index_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            return HttpResponse(content, content_type='text/html')
+    except Exception:
+        pass
+    
+    # Fallback to Django template
+    try:
+        from django.shortcuts import render
+        return render(request, 'index.html')
+    except Exception:
+        pass
+    
+    # Final fallback to JSON response
+    return JsonResponse({
+        "message": "E2I Data Warehouse API",
+        "version": "1.0.0",
+        "status": "running",
+        "endpoints": {
+            "admin": "/admin/",
+            "api": "/api/",
+            "health": "/health/",
+            "auth": "/auth/",
+            "dashboard": "/dashboard/",
+            "templates": "/templates/",
+            "ingestion": "/ingest/",
+            "reports": "/api/reports/"
+        }
+    })
 
 # Health check view
 @require_http_methods(["GET"])

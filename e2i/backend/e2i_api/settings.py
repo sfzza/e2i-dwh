@@ -189,10 +189,8 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
-# Include React build files in static files
-STATICFILES_DIRS = [
-    BASE_DIR / "staticfiles",  # React build files
-]
+# Static files directories (excluding STATIC_ROOT)
+STATICFILES_DIRS = []
 
 # Only add static directory if it exists
 if (BASE_DIR / "static").exists():
