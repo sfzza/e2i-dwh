@@ -17,6 +17,8 @@ echo "📁 Creating necessary directories..."
 mkdir -p /app/exports
 mkdir -p /app/logs
 mkdir -p /app/e2i/backend/logs
+mkdir -p /app/e2i/backend/static
+mkdir -p /app/e2i/backend/staticfiles
 
 # Navigate to the Django backend directory
 cd /app/e2i/backend

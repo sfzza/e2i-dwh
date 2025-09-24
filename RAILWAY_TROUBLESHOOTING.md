@@ -21,22 +21,22 @@ FileNotFoundError: [Errno 2] No such file or directory: '/app/logs/django.log'
 
 **Error Message:**
 ```
+django.db.utils.OperationalError: could not translate host name "orchestrator_postgres" to address: Name or service not known
 django.db.utils.OperationalError: could not connect to server
 ```
 
 **Solution:**
+✅ **Fixed** - Updated Django settings to use Railway's DATABASE_URL:
+```python
+# Railway database configuration
+if os.getenv("DATABASE_URL"):
+    import dj_database_url
+    DATABASES["default"] = dj_database_url.parse(os.getenv("DATABASE_URL"))
+```
+
 1. **Add PostgreSQL Addon** in Railway dashboard
-2. **Set Environment Variables** (Railway provides these automatically):
-   ```bash
-   DATABASE_URL=postgresql://user:password@host:port/database
-   ```
-3. **Or set manually:**
-   ```bash
-   DJANGO_DB_HOST=your-db-host.railway.app
-   DJANGO_DB_USER=postgres
-   DJANGO_DB_PASSWORD=your-password
-   DJANGO_DB_NAME=railway
-   ```
+2. **DATABASE_URL is automatically provided** by Railway PostgreSQL addon
+3. **No manual configuration needed** - Django will automatically use Railway's database
 
 ### Issue: Port Configuration
 
@@ -55,13 +55,24 @@ python manage.py runserver 0.0.0.0:$PORT
 
 **Error Message:**
 ```
+WARNINGS:
+?: (staticfiles.W004) The directory '/app/e2i/backend/static' in the STATICFILES_DIRS setting does not exist.
 Permission denied: '/app/static'
 ```
 
 **Solution:**
-✅ **Fixed** - Updated permissions in Dockerfile:
+✅ **Fixed** - Updated Django settings to handle missing static directory:
+```python
+# Only add static directory if it exists
+STATICFILES_DIRS = []
+if (BASE_DIR / "static").exists():
+    STATICFILES_DIRS = [BASE_DIR / "static"]
+```
+
+✅ **Fixed** - Created static directories in Dockerfile and start.sh:
 ```dockerfile
-RUN chmod -R 755 /app
+RUN mkdir -p /app/e2i/backend/static
+RUN mkdir -p /app/e2i/backend/staticfiles
 ```
 
 ### Issue: Missing Dependencies

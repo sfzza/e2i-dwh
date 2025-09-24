@@ -40,6 +40,8 @@ RUN chmod +x start.sh
 RUN mkdir -p /app/exports
 RUN mkdir -p /app/logs
 RUN mkdir -p /app/e2i/backend/logs
+RUN mkdir -p /app/e2i/backend/static
+RUN mkdir -p /app/e2i/backend/staticfiles
 
 # Set proper permissions
 RUN chmod -R 755 /app

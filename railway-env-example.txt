@@ -9,13 +9,15 @@ DJANGO_ALLOWED_HOSTS=your-app.railway.app,localhost
 
 # Database (Railway PostgreSQL addon will provide these automatically)
 # DATABASE_URL is automatically provided by Railway PostgreSQL addon
-# Or set manually:
-DJANGO_DB_ENGINE=django.db.backends.postgresql
-DJANGO_DB_NAME=railway
-DJANGO_DB_USER=postgres
-DJANGO_DB_PASSWORD=your-db-password
-DJANGO_DB_HOST=your-db-host.railway.app
-DJANGO_DB_PORT=5432
+# No need to set individual database variables - DATABASE_URL is sufficient
+
+# Optional: Override individual database settings if needed
+# DJANGO_DB_ENGINE=django.db.backends.postgresql
+# DJANGO_DB_NAME=railway
+# DJANGO_DB_USER=postgres
+# DJANGO_DB_PASSWORD=your-db-password
+# DJANGO_DB_HOST=your-db-host.railway.app
+# DJANGO_DB_PORT=5432
 
 # Optional: External Services (if not using Railway addons)
 MINIO_ENDPOINT=your-minio-endpoint

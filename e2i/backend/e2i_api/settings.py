@@ -101,6 +101,7 @@ WSGI_APPLICATION = "e2i_api.wsgi.application"
 # ---------------------------------------------------------------------
 # DATABASE
 # ---------------------------------------------------------------------
+# Database configuration with Railway support
 DATABASES = {
     "default": {
         "ENGINE": os.getenv("DJANGO_DB_ENGINE", "django.db.backends.postgresql"),
@@ -111,6 +112,11 @@ DATABASES = {
         "PORT": os.getenv("DJANGO_DB_PORT", "5432"),
     }
 }
+
+# Railway database configuration
+if os.getenv("DATABASE_URL"):
+    import dj_database_url
+    DATABASES["default"] = dj_database_url.parse(os.getenv("DATABASE_URL"))
 
 # ---------------------------------------------------------------------
 # AUTHENTICATION
@@ -161,8 +167,12 @@ USE_TZ = True
 # STATIC & MEDIA
 # ---------------------------------------------------------------------
 STATIC_URL = "static/"
-STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# Only add static directory if it exists
+STATICFILES_DIRS = []
+if (BASE_DIR / "static").exists():
+    STATICFILES_DIRS = [BASE_DIR / "static"]
 
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
