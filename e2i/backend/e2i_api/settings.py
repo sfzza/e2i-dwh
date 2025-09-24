@@ -104,19 +104,39 @@ WSGI_APPLICATION = "e2i_api.wsgi.application"
 # Database configuration with Railway support
 DATABASES = {
     "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": "railway",
+        "USER": "postgres", 
+        "PASSWORD": "password",
+        "HOST": "localhost",
+        "PORT": "5432",
+    }
+}
+
+# Railway database configuration - takes precedence
+if os.getenv("DATABASE_URL"):
+    try:
+        import dj_database_url
+        DATABASES["default"] = dj_database_url.parse(os.getenv("DATABASE_URL"))
+        print("✅ Using Railway DATABASE_URL for database connection")
+    except Exception as e:
+        print(f"❌ Error parsing DATABASE_URL: {e}")
+        print("📝 Please ensure PostgreSQL addon is added to your Railway project")
+
+# Fallback for local development
+elif os.getenv("DJANGO_DB_HOST"):
+    DATABASES["default"] = {
         "ENGINE": os.getenv("DJANGO_DB_ENGINE", "django.db.backends.postgresql"),
         "NAME": os.getenv("DJANGO_DB_NAME", "e2i_db"),
         "USER": os.getenv("DJANGO_DB_USER", "e2i_user"),
         "PASSWORD": os.getenv("DJANGO_DB_PASSWORD", "e2i_pass"),
-        "HOST": os.getenv("DJANGO_DB_HOST", "orchestrator_postgres"),
+        "HOST": os.getenv("DJANGO_DB_HOST"),
         "PORT": os.getenv("DJANGO_DB_PORT", "5432"),
     }
-}
-
-# Railway database configuration
-if os.getenv("DATABASE_URL"):
-    import dj_database_url
-    DATABASES["default"] = dj_database_url.parse(os.getenv("DATABASE_URL"))
+    print("📝 Using custom database configuration")
+else:
+    print("❌ No database configuration found!")
+    print("📝 Please add PostgreSQL addon to Railway or set DATABASE_URL environment variable")
 
 # ---------------------------------------------------------------------
 # AUTHENTICATION

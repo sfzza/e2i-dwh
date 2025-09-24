@@ -26,6 +26,9 @@ cd /app/e2i/backend
 echo "📦 Installing Python dependencies..."
 pip install -r requirements.txt
 
+echo "🔍 Checking database configuration..."
+python /app/check-database.py
+
 echo "🗄️ Running database migrations..."
 python manage.py migrate
 
