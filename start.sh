@@ -141,7 +141,12 @@ echo "📡 Using PORT: $PORT"
 cd /app/e2i/backend
 if command -v gunicorn &> /dev/null; then
     echo "🚀 Starting with Gunicorn (Production)"
-    gunicorn --bind 0.0.0.0:$PORT --workers 3 e2i_api.wsgi:application
+    gunicorn e2i_api.wsgi:application \
+        --bind 0.0.0.0:$PORT \
+        --workers 2 \
+        --timeout 120 \
+        --access-logfile - \
+        --error-logfile -
 else
     echo "🚀 Starting with Django development server"
     python manage.py runserver 0.0.0.0:$PORT

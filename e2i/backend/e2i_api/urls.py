@@ -44,7 +44,26 @@ def root_view(request):
 
 # Health check view
 def health_view(request):
-    return JsonResponse({"status": "ok"})
+    try:
+        # Test database connection
+        from django.db import connection
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+        
+        return JsonResponse({
+            "status": "healthy",
+            "service": "E2I Data Warehouse",
+            "database": "connected",
+            "timestamp": "2025-09-25T02:00:00Z"
+        })
+    except Exception as e:
+        return JsonResponse({
+            "status": "unhealthy", 
+            "service": "E2I Data Warehouse",
+            "database": "disconnected",
+            "error": str(e),
+            "timestamp": "2025-09-25T02:00:00Z"
+        }, status=500)
 
 # Authentication views
 from e2i_api.apps.common.auth import (

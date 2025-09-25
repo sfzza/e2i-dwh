@@ -346,3 +346,26 @@ DETOKENIZATION = {
 # AUTHENTICATION CONFIGURATION (REMOVED - Superseded by new settings)
 # ---------------------------------------------------------------------
 # This section has been replaced by the new RATE_LIMITING and other specific settings.
+
+# ---------------------------------------------------------------------
+# PRODUCTION SECURITY SETTINGS
+# ---------------------------------------------------------------------
+
+# Fix security warnings for production deployment
+if not DEBUG:
+    # HTTP Strict Transport Security
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    
+    # SSL Redirect
+    SECURE_SSL_REDIRECT = True
+    
+    # Secure cookies
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    
+    # Additional security headers
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = 'DENY'
