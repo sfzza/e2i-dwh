@@ -72,9 +72,9 @@ if [ -f "/app/e2i/frontend/package.json" ]; then
                npm install -g react-scripts || echo "⚠️  Global install failed"
            fi
            
-           # Fix npm vulnerabilities
-           echo "🔧 Fixing npm vulnerabilities..."
-           npm audit fix --force || echo "⚠️  Some vulnerabilities remain, but continuing with build"
+           # Fix npm vulnerabilities (but don't break react-scripts)
+           echo "🔧 Checking npm vulnerabilities..."
+           npm audit --audit-level=high || echo "⚠️  Some vulnerabilities found, but continuing with build"
     
     # Build React app
     echo "🔨 Building React app..."
