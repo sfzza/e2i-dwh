@@ -55,15 +55,19 @@ if [ -f "/app/e2i/frontend/package.json" ]; then
     echo "📦 Building React frontend..."
     cd /app/e2i/frontend
     
-    # Install dependencies if node_modules doesn't exist
-    if [ ! -d "node_modules" ]; then
-        echo "📥 Installing React dependencies..."
-        npm install || {
-            echo "❌ Failed to install React dependencies"
-            echo "📁 Trying to install react-scripts globally..."
-            npm install -g react-scripts || echo "⚠️  Global install also failed, continuing without React build"
-        }
-    fi
+           # Install dependencies if node_modules doesn't exist
+           if [ ! -d "node_modules" ]; then
+               echo "📥 Installing React dependencies..."
+               npm install || {
+                   echo "❌ Failed to install React dependencies"
+                   echo "📁 Trying to install react-scripts globally..."
+                   npm install -g react-scripts || echo "⚠️  Global install also failed, continuing without React build"
+               }
+           fi
+           
+           # Fix npm vulnerabilities
+           echo "🔧 Fixing npm vulnerabilities..."
+           npm audit fix --force || echo "⚠️  Some vulnerabilities remain, but continuing with build"
     
     # Build React app
     echo "🔨 Building React app..."
