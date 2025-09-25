@@ -33,4 +33,6 @@ exec gunicorn e2i_api.wsgi:application \
     --access-logfile - \
     --error-logfile - \
     --log-level debug \
+    --capture-output \
+    --enable-stdio-inheritance \
     --chdir /app/e2i/backend
