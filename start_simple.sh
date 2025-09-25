@@ -6,9 +6,6 @@ echo "🚀 Starting E2I Data Warehouse on Railway..."
 PORT=${PORT:-3000}
 echo "📡 Using PORT: $PORT"
 
-# Change to backend directory
-cd /app/e2i/backend
-
 # Run migrations
 echo "🗄️ Running database migrations..."
 python manage.py migrate --noinput
@@ -19,7 +16,7 @@ python manage.py collectstatic --noinput --clear
 
 # Start Gunicorn directly - no React build
 echo "🚀 Starting Gunicorn server..."
-exec gunicorn e2i_api.wsgi:application \
+exec gunicorn e2i.backend.wsgi:application \
     --bind 0.0.0.0:$PORT \
     --workers 2 \
     --timeout 120 \
