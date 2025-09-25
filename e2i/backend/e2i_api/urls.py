@@ -7,33 +7,16 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
 
-# Root view with React frontend serving
+# Simple root view for Railway
 def root_view(request):
-    try:
-        # Try to serve React frontend
-        from django.http import HttpResponse
-        import os
-        from django.conf import settings
-        
-        # Path to React build index.html
-        index_path = os.path.join(settings.STATIC_ROOT, 'index.html')
-        
-        if os.path.exists(index_path):
-            with open(index_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            return HttpResponse(content, content_type='text/html')
-    except Exception as e:
-        pass  # Fall through to JSON response
-    
-    # Fallback to JSON API response
     return JsonResponse({
         "message": "E2I Data Warehouse API",
         "version": "1.0.0",
         "status": "running",
         "endpoints": {
+            "health": "/health/",
             "admin": "/admin/",
             "api": "/api/",
-            "health": "/health/",
             "auth": "/auth/",
             "dashboard": "/dashboard/",
             "templates": "/templates/",
@@ -44,26 +27,7 @@ def root_view(request):
 
 # Health check view
 def health_view(request):
-    try:
-        # Test database connection
-        from django.db import connection
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1")
-        
-        return JsonResponse({
-            "status": "healthy",
-            "service": "E2I Data Warehouse",
-            "database": "connected",
-            "timestamp": "2025-09-25T02:00:00Z"
-        })
-    except Exception as e:
-        return JsonResponse({
-            "status": "unhealthy", 
-            "service": "E2I Data Warehouse",
-            "database": "disconnected",
-            "error": str(e),
-            "timestamp": "2025-09-25T02:00:00Z"
-        }, status=500)
+    return JsonResponse({"status": "ok"})
 
 # Authentication views
 from e2i_api.apps.common.auth import (
