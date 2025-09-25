@@ -79,6 +79,17 @@ if [ -f "/app/e2i/frontend/package.json" ]; then
     echo "📋 Copying React build to Django static files..."
     mkdir -p /app/e2i/backend/e2i_api/staticfiles
     cp -r /app/e2i/frontend/build/* /app/e2i/backend/e2i_api/staticfiles/
+    
+    # Verify the copy worked
+    echo "🔍 Verifying React files were copied..."
+    if [ -f "/app/e2i/backend/e2i_api/staticfiles/index.html" ]; then
+        echo "✅ React index.html found"
+        ls -la /app/e2i/backend/e2i_api/staticfiles/ | head -10
+    else
+        echo "❌ React index.html NOT found"
+        echo "📁 Contents of staticfiles directory:"
+        ls -la /app/e2i/backend/e2i_api/staticfiles/ || echo "Directory not found"
+    fi
     echo "✅ React frontend integrated with Django"
 else
     echo "⚠️  React frontend package.json not found at /app/e2i/frontend/package.json"

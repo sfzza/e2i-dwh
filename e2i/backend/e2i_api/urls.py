@@ -18,25 +18,41 @@ def root_view(request):
         # Path to React build index.html
         index_path = os.path.join(settings.STATIC_ROOT, 'index.html')
         
+        # Debug logging
+        print(f"🔍 Looking for React app at: {index_path}")
+        print(f"🔍 STATIC_ROOT: {settings.STATIC_ROOT}")
+        print(f"🔍 File exists: {os.path.exists(index_path)}")
+        
         if os.path.exists(index_path):
             with open(index_path, 'r', encoding='utf-8') as f:
                 content = f.read()
+            print("✅ Serving React app")
             return HttpResponse(content, content_type='text/html')
-    except Exception:
+        else:
+            print("⚠️ React index.html not found")
+    except Exception as e:
+        print(f"❌ Error serving React app: {e}")
         pass
     
     # Fallback to Django template
     try:
         from django.shortcuts import render
+        print("🔄 Falling back to Django template")
         return render(request, 'index.html')
-    except Exception:
+    except Exception as e:
+        print(f"❌ Error serving Django template: {e}")
         pass
     
     # Final fallback to JSON response
+    print("🔄 Final fallback to JSON response")
     return JsonResponse({
         "message": "E2I Data Warehouse API",
         "version": "1.0.0",
         "status": "running",
+        "debug": {
+            "static_root": str(settings.STATIC_ROOT),
+            "react_file_exists": os.path.exists(os.path.join(settings.STATIC_ROOT, 'index.html')) if hasattr(settings, 'STATIC_ROOT') else False
+        },
         "endpoints": {
             "admin": "/admin/",
             "api": "/api/",
