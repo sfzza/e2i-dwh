@@ -69,7 +69,7 @@ INSTALLED_APPS = [
 # ---------------------------------------------------------------------
 MIDDLEWARE = [
     # Custom health check middleware - MUST be first to handle Railway health checks
-    "e2i.backend.middleware.HealthCheckMiddleware",
+    "middleware.HealthCheckMiddleware",
     
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",

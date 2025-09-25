@@ -45,6 +45,11 @@ RUN mkdir -p /app/e2i/backend/logs
 RUN mkdir -p /app/e2i/backend/static
 RUN mkdir -p /app/e2i/backend/staticfiles
 
+# Create __init__.py files for proper Python package structure
+RUN touch /app/e2i/__init__.py && \
+    touch /app/e2i/backend/__init__.py && \
+    touch /app/e2i/backend/e2i_api/__init__.py
+
 # Set proper permissions
 RUN chmod -R 755 /app
 
