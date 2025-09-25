@@ -55,14 +55,21 @@ if [ -f "/app/e2i/frontend/package.json" ]; then
     echo "📦 Building React frontend..."
     cd /app/e2i/frontend
     
-           # Install dependencies if node_modules doesn't exist
-           if [ ! -d "node_modules" ]; then
-               echo "📥 Installing React dependencies..."
+           # Always reinstall dependencies to ensure react-scripts is available
+           echo "📥 Installing React dependencies..."
+           npm install || {
+               echo "❌ Failed to install React dependencies, trying clean install..."
+               rm -rf node_modules package-lock.json
                npm install || {
-                   echo "❌ Failed to install React dependencies"
-                   echo "📁 Trying to install react-scripts globally..."
+                   echo "❌ Clean install also failed, trying global react-scripts..."
                    npm install -g react-scripts || echo "⚠️  Global install also failed, continuing without React build"
                }
+           }
+           
+           # Verify react-scripts is available
+           if ! command -v react-scripts &> /dev/null && [ ! -f "node_modules/.bin/react-scripts" ]; then
+               echo "❌ react-scripts not found, installing globally..."
+               npm install -g react-scripts || echo "⚠️  Global install failed"
            fi
            
            # Fix npm vulnerabilities
@@ -71,30 +78,49 @@ if [ -f "/app/e2i/frontend/package.json" ]; then
     
     # Build React app
     echo "🔨 Building React app..."
-    npm run build || {
-        echo "❌ React build failed, continuing without React frontend"
-        echo "📝 Django will serve fallback template instead"
-    }
+    
+    # Try different ways to run react-scripts
+    if [ -f "node_modules/.bin/react-scripts" ]; then
+        echo "📦 Using local react-scripts..."
+        ./node_modules/.bin/react-scripts build || {
+            echo "❌ Local react-scripts build failed, trying npm run build..."
+            npm run build || echo "❌ npm run build also failed"
+        }
+    elif command -v react-scripts &> /dev/null; then
+        echo "📦 Using global react-scripts..."
+        react-scripts build || echo "❌ Global react-scripts build failed"
+    else
+        echo "❌ No react-scripts found, trying npm run build..."
+        npm run build || {
+            echo "❌ React build failed, continuing without React frontend"
+            echo "📝 Django will serve fallback template instead"
+        }
+    fi
     
     # Return to app root
     cd /app
     
-    # Copy React build to Django static files
-    echo "📋 Copying React build to Django static files..."
-    mkdir -p /app/e2i/backend/e2i_api/staticfiles
-    cp -r /app/e2i/frontend/build/* /app/e2i/backend/e2i_api/staticfiles/
-    
-    # Verify the copy worked
-    echo "🔍 Verifying React files were copied..."
-    if [ -f "/app/e2i/backend/e2i_api/staticfiles/index.html" ]; then
-        echo "✅ React index.html found"
-        ls -la /app/e2i/backend/e2i_api/staticfiles/ | head -10
+    # Copy React build to Django static files (only if build directory exists)
+    if [ -d "/app/e2i/frontend/build" ]; then
+        echo "📋 Copying React build to Django static files..."
+        mkdir -p /app/e2i/backend/e2i_api/staticfiles
+        cp -r /app/e2i/frontend/build/* /app/e2i/backend/e2i_api/staticfiles/
+        
+        # Verify the copy worked
+        echo "🔍 Verifying React files were copied..."
+        if [ -f "/app/e2i/backend/e2i_api/staticfiles/index.html" ]; then
+            echo "✅ React index.html found"
+            ls -la /app/e2i/backend/e2i_api/staticfiles/ | head -10
+            echo "✅ React frontend integrated with Django"
+        else
+            echo "❌ React index.html NOT found"
+            echo "📁 Contents of staticfiles directory:"
+            ls -la /app/e2i/backend/e2i_api/staticfiles/ || echo "Directory not found"
+        fi
     else
-        echo "❌ React index.html NOT found"
-        echo "📁 Contents of staticfiles directory:"
-        ls -la /app/e2i/backend/e2i_api/staticfiles/ || echo "Directory not found"
+        echo "⚠️  React build directory not found, skipping React frontend integration"
+        echo "📝 Django will serve fallback template instead"
     fi
-    echo "✅ React frontend integrated with Django"
 else
     echo "⚠️  React frontend package.json not found at /app/e2i/frontend/package.json"
     echo "📁 Available files in /app/e2i/:"
