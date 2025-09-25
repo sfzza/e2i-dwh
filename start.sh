@@ -20,6 +20,10 @@ python manage.py migrate --noinput
 echo "🔧 Collecting Django static files..."
 python manage.py collectstatic --noinput --clear
 
+# TEST: Show configured URLs
+echo "📋 Checking URL configuration..."
+python manage.py shell -c "from e2i_api.urls import urlpatterns; print('Configured URLs:', [str(p.pattern) for p in urlpatterns])"
+
 # Start Gunicorn from the correct directory
 echo "🚀 Starting Gunicorn server..."
 exec gunicorn e2i_api.wsgi:application \
@@ -28,5 +32,5 @@ exec gunicorn e2i_api.wsgi:application \
     --timeout 120 \
     --access-logfile - \
     --error-logfile - \
-    --log-level info \
+    --log-level debug \
     --chdir /app/e2i/backend
