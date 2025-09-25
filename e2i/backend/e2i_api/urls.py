@@ -9,6 +9,10 @@ from django.utils import timezone
 
 # Simple root view for Railway
 def root_view(request):
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info("Root view called")
+    
     return JsonResponse({
         "message": "E2I Data Warehouse API",
         "version": "1.0.0",
@@ -27,6 +31,9 @@ def root_view(request):
 
 # Health check view
 def health_view(request):
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info("Health view called")
     return JsonResponse({"status": "ok"})
 
 # Authentication views
