@@ -5,34 +5,19 @@ from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
+from django.utils import timezone
 
 # Simple root view for testing
-@require_http_methods(["GET"])
 def root_view(request):
     return JsonResponse({
         "message": "E2I Data Warehouse API",
         "version": "1.0.0",
-        "status": "running",
-        "endpoints": {
-            "admin": "/admin/",
-            "api": "/api/",
-            "health": "/health/",
-            "auth": "/auth/",
-            "dashboard": "/dashboard/",
-            "templates": "/templates/",
-            "ingestion": "/ingest/",
-            "reports": "/api/reports/"
-        }
+        "status": "running"
     })
 
 # Health check view
-@require_http_methods(["GET"])
 def health_view(request):
-    return JsonResponse({
-        "status": "healthy",
-        "service": "E2I Data Warehouse",
-        "database": "connected"
-    })
+    return JsonResponse({"status": "ok"})
 
 # Authentication views
 from e2i_api.apps.common.auth import (
