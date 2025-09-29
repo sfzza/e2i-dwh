@@ -754,7 +754,6 @@ button:disabled::before {
   
 /* Enhanced Forms */
   .form-group {
-  margin-bottom: var(--spacing-6);
     position: relative;
   }
   
@@ -1972,7 +1971,6 @@ table td .button-group button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   background: linear-gradient(135deg, var(--gray-50) 0%, var(--blue-50) 100%);
 }
 
@@ -2062,10 +2060,6 @@ table td .button-group button {
 }
 
 .form-section {
-  margin-bottom: var(--spacing-6);
-}
-
-.form-group {
   margin-bottom: var(--spacing-6);
 }
 

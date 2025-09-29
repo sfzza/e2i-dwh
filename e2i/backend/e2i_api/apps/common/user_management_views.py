@@ -233,3 +233,5 @@ def user_update_view(request, user_id):
     except Exception as e:
         logger.error(f"Error updating user: {e}")
         return _json_error("INTERNAL_ERROR", "Failed to update user", 500)
+
+

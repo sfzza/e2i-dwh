@@ -144,6 +144,25 @@ def template_create_from_upload_view(request):
                 data_type=data_type, order=idx
             )
     
+    # Log template creation activity
+    from e2i_api.apps.common.models import AuditLog
+    if current_user:
+        AuditLog.log_action(
+            user=current_user,
+            username=current_user.username,
+            action='template_create',
+            resource=f'template: {template_name}',
+            resource_id=str(template.id),
+            status='success',
+            ip_address=request.META.get('REMOTE_ADDR'),
+            user_agent=request.META.get('HTTP_USER_AGENT', '')[:1000],
+            details={
+                'target_table': target_table,
+                'columns_count': len(df.columns),
+                'created_from_upload': str(upload_id)
+            }
+        )
+    
     return JsonResponse({"id": str(template.id), "status": template.status}, status=201)
 
 @user_access_required

@@ -223,3 +223,5 @@ def audit_logs_stats_view(request: HttpRequest):
     except Exception as e:
         logger.error(f"Error fetching audit logs stats: {e}")
         return _json_error("INTERNAL_SERVER_ERROR", f"Failed to fetch audit logs stats: {e}", 500)
+
+

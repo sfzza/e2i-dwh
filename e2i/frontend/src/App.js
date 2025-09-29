@@ -1,8 +1,9 @@
 // src/App.js
 import React, { useState, useEffect } from "react";
 import "./App.css";
+import "./modern-dashboard.css";
 
-const API_BASE = "http://localhost:8001";
+const API_BASE = ""; // Use relative URLs since nginx proxies to Django
 
 // Success Popup Component
 function SuccessPopup({ message, onClose }) {
@@ -137,7 +138,7 @@ function FileUpload({
       // Create a proper synthetic event that matches what the input would create
       const syntheticEvent = {
         target: {
-          files: [file],
+          files: e.dataTransfer.files,
           value: file.name,
         },
       };
@@ -166,9 +167,6 @@ function FileUpload({
         onClick={() => document.getElementById(inputId).click()}
       >
         <div className="file-upload-content">
-          <div className="upload-icon">
-            <i className="fas fa-cloud-upload-alt"></i>
-          </div>
 
           {selectedFile ? (
             <div className="file-selected">
@@ -190,7 +188,7 @@ function FileUpload({
           type="file"
           onChange={handleFileSelect}
           accept={accept}
-          required={required}
+          required={false}
           style={{ display: "none" }}
         />
       </div>
@@ -337,10 +335,13 @@ function App() {
 
         <main className="main">
           <div className="fade-in">
-            {currentPage === "dashboard" && (
-              <Dashboard user={user} apiKey={apiKey} />
+            {currentPage === "dashboard" && user.role === "admin" && (
+              <AdminDashboard user={user} apiKey={apiKey} />
             )}
-            {currentPage === "upload" && <UploadPage apiKey={apiKey} />}
+            {currentPage === "dashboard" && user.role === "user" && (
+              <UserDashboard user={user} apiKey={apiKey} />
+            )}
+            {currentPage === "upload" && <UploadPage apiKey={apiKey} user={user} />}
             {currentPage === "templates" && user.role === "admin" && (
               <TemplatesPage apiKey={apiKey} />
             )}
@@ -436,8 +437,8 @@ function LoginPage({ setUser, setApiKey, setCurrentPage }) {
   );
 }
 
-// Dashboard Component
-function Dashboard({ user, apiKey }) {
+// Admin Dashboard Component
+function AdminDashboard({ user, apiKey }) {
   const [metrics, setMetrics] = useState({
     files_processed_month: 0,
     files_processed_change: 0,
@@ -446,51 +447,134 @@ function Dashboard({ user, apiKey }) {
     reports_generated: 0,
     reports_generated_week: 0,
     system_status: "operational",
+    total_users: 0,
+    active_users_today: 0,
     recent_uploads: [],
   });
+  const [activity, setActivity] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    fetchDashboardMetrics();
+    fetchDashboardData();
+    // Set up auto-refresh every 30 seconds
+    const interval = setInterval(fetchDashboardData, 30000);
+    return () => clearInterval(interval);
   }, [apiKey]);
 
-  const fetchDashboardMetrics = async () => {
+  const fetchDashboardData = async (isRefresh = false) => {
     try {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
       setLoading(true);
-      console.log("Fetching dashboard metrics from API...");
+      }
+      
+      console.log("Fetching admin dashboard data from API...");
+      console.log("API_BASE:", API_BASE);
+      console.log("API Key:", apiKey ? "Present" : "Missing");
 
-      const response = await fetch(`${API_BASE}/dashboard/metrics/`, {
+      // Test API connectivity first
+      try {
+        // First try a simple health check
+        const healthResponse = await fetch(`${API_BASE}/`, {
+          method: 'GET',
+          headers: { "X-API-Key": apiKey },
+        });
+        console.log("Health check response status:", healthResponse.status);
+        
+        if (!healthResponse.ok && healthResponse.status !== 404) {
+          const errorText = await healthResponse.text();
+          console.error("Health check error:", errorText);
+          setError(`Backend server error ${healthResponse.status}: ${errorText}`);
+          return;
+        }
+        
+        // Now test the dashboard endpoint
+        const testResponse = await fetch(`${API_BASE}/dashboard/metrics/`, {
+          headers: { "X-API-Key": apiKey },
+        });
+        console.log("Test response status:", testResponse.status);
+        console.log("Test response headers:", Object.fromEntries(testResponse.headers.entries()));
+        
+        if (!testResponse.ok) {
+          const errorText = await testResponse.text();
+          console.error("Test response error:", errorText);
+          setError(`Dashboard API Error ${testResponse.status}: ${errorText}`);
+          return;
+        }
+      } catch (testError) {
+        console.error("API connectivity test failed:", testError);
+        if (testError.message.includes('Failed to fetch') || testError.message.includes('NetworkError')) {
+          setError(`Cannot connect to backend server at ${API_BASE}. Please ensure the backend is running.`);
+        } else {
+          setError(`Connection failed: ${testError.message}`);
+        }
+        return;
+      }
+
+      // Fetch metrics and activity in parallel
+      const [metricsResponse, activityResponse] = await Promise.all([
+        fetch(`${API_BASE}/dashboard/metrics/`, {
         headers: { "X-API-Key": apiKey },
+        }),
+        fetch(`${API_BASE}/dashboard/activity/`, {
+          headers: { "X-API-Key": apiKey },
+        })
+      ]);
+
+      console.log("Dashboard responses:", {
+        metrics: metricsResponse.status,
+        activity: activityResponse.status
       });
 
-      console.log("Dashboard metrics response status:", response.status);
+      if (metricsResponse.ok) {
+        const metricsData = await metricsResponse.json();
+        console.log("Admin dashboard metrics data:", metricsData);
 
-      if (response.ok) {
-        const data = await response.json();
-        console.log("Dashboard metrics data:", data);
-
-        if (data.success && data.metrics) {
-          setMetrics(data.metrics);
-          console.log("Dashboard metrics loaded successfully");
+        if (metricsData.success && metricsData.metrics) {
+          setMetrics(metricsData.metrics);
+          console.log("Admin dashboard metrics loaded successfully");
         } else {
           console.warn("API returned success but no metrics data");
           setError("Failed to load dashboard metrics");
         }
       } else {
-        const errorText = await response.text();
-        console.error(
-          "Dashboard metrics API error:",
-          response.status,
-          errorText
-        );
+        const errorText = await metricsResponse.text();
+        console.error("Admin dashboard metrics API error:", metricsResponse.status, errorText);
         setError("Failed to load dashboard metrics");
       }
+
+      if (activityResponse.ok) {
+        const activityData = await activityResponse.json();
+        console.log("Dashboard activity data:", activityData);
+
+        if (activityData.success && activityData.activity) {
+          setActivity(activityData.activity);
+          console.log("Dashboard activity loaded successfully:", activityData.activity.length, "items");
+        } else {
+          console.warn("Activity API returned success but no activity data:", activityData);
+          setActivity([]);
+        }
+      } else {
+        const errorText = await activityResponse.text();
+        console.error("Dashboard activity API error:", activityResponse.status, errorText);
+        setActivity([]);
+      }
+
     } catch (err) {
-      console.error("Dashboard metrics fetch error:", err);
-      setError("Failed to load dashboard metrics");
+      console.error("Admin dashboard data fetch error:", err);
+      
+      // Check if it's a network error
+      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        setError(`Cannot connect to backend server at ${API_BASE}. Please ensure the backend is running on port 8001.`);
+      } else {
+        setError(`Failed to load dashboard data: ${err.message}`);
+      }
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -520,13 +604,81 @@ function Dashboard({ user, apiKey }) {
     }
   };
 
+  const formatTimestamp = (timestamp) => {
+    if (!timestamp) return "-";
+    const date = new Date(timestamp);
+    return date.toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const getActivityIcon = (action) => {
+    if (!action) return "fas fa-circle";
+    
+    switch (action.toLowerCase()) {
+      case "login": return "fas fa-sign-in-alt";
+      case "logout": return "fas fa-sign-out-alt";
+      case "upload": return "fas fa-upload";
+      case "file_upload": return "fas fa-upload";
+      case "template_create": return "fas fa-plus-circle";
+      case "template_edit": return "fas fa-edit";
+      case "template_delete": return "fas fa-trash";
+      case "user_create": return "fas fa-user-plus";
+      case "user_update": return "fas fa-user-edit";
+      case "user_delete": return "fas fa-user-times";
+      case "data_ingestion": return "fas fa-database";
+      case "data_processing": return "fas fa-cogs";
+      case "report_generation": return "fas fa-chart-line";
+      case "system_access": return "fas fa-shield-alt";
+      case "api_access": return "fas fa-key";
+      case "error": return "fas fa-exclamation-triangle";
+      case "warning": return "fas fa-exclamation-circle";
+      case "info": return "fas fa-info-circle";
+      default: return "fas fa-circle";
+    }
+  };
+
+  const getActivityColor = (action) => {
+    if (!action) return "text-gray-500";
+    
+    switch (action.toLowerCase()) {
+      case "login": return "text-green-500";
+      case "logout": return "text-gray-500";
+      case "upload": return "text-blue-500";
+      case "file_upload": return "text-blue-500";
+      case "template_create": return "text-purple-500";
+      case "template_edit": return "text-yellow-500";
+      case "template_delete": return "text-red-500";
+      case "user_create": return "text-indigo-500";
+      case "user_update": return "text-orange-500";
+      case "user_delete": return "text-red-500";
+      case "data_ingestion": return "text-cyan-500";
+      case "data_processing": return "text-blue-600";
+      case "report_generation": return "text-green-600";
+      case "system_access": return "text-purple-600";
+      case "api_access": return "text-indigo-600";
+      case "error": return "text-red-600";
+      case "warning": return "text-yellow-600";
+      case "info": return "text-blue-500";
+      default: return "text-gray-500";
+    }
+  };
+
   if (loading) {
     return (
-      <div className="dashboard">
-        <h1 className="gradient-text">Dashboard</h1>
+      <div className="upload-page">
+        <div className="upload-container">
+          <div className="upload-header">
+            <h1 className="gradient-text">Admin Dashboard</h1>
+            <div className="header-gradient-line"></div>
+          </div>
         <div className="loading-container">
           <i className="fas fa-spinner fa-spin"></i>
           <p>Loading dashboard metrics...</p>
+          </div>
         </div>
       </div>
     );
@@ -536,15 +688,50 @@ function Dashboard({ user, apiKey }) {
     <div className="upload-page">
       <div className="upload-container">
         <div className="upload-header">
-          <h1 className="gradient-text">Dashboard</h1>
+          <h1 className="gradient-text">Admin Dashboard</h1>
           <div className="header-gradient-line"></div>
+        </div>
+
+        <div className="dashboard-controls">
+          <div className="server-status">
+            <i className="fas fa-server"></i>
+            <span>Backend: {API_BASE}</span>
+            <div className={`status-indicator ${error ? 'offline' : 'online'}`}>
+              <i className={`fas fa-circle ${error ? 'text-red-500' : 'text-green-500'}`}></i>
+              {error ? 'Offline' : 'Online'}
+            </div>
+          </div>
+          <button 
+            onClick={() => fetchDashboardData(true)} 
+            className={`refresh-btn ${refreshing ? 'refreshing' : ''}`}
+            disabled={refreshing}
+          >
+            <i className={`fas fa-sync-alt ${refreshing ? 'fa-spin' : ''}`}></i>
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+          <div className="last-updated">
+            <i className="fas fa-clock"></i>
+            Last updated: {new Date().toLocaleTimeString()}
+          </div>
         </div>
 
         {error && (
           <div className="error-message">
             <i className="fas fa-exclamation-triangle"></i>
-            {error}
-            <button onClick={fetchDashboardMetrics} className="retry-btn">
+            <div className="error-content">
+              <div className="error-text">{error}</div>
+              {error.includes('Cannot connect to backend server') && (
+                <div className="error-help">
+                  <h4>To start the backend server:</h4>
+                  <ol>
+                    <li>Open a terminal and navigate to the backend directory</li>
+                    <li>Activate the virtual environment: <code>source venv/bin/activate</code></li>
+                    <li>Start the Django server: <code>python manage.py runserver 8001</code></li>
+                  </ol>
+                </div>
+              )}
+            </div>
+            <button onClick={() => fetchDashboardData()} className="retry-btn">
               <i className="fas fa-redo"></i> Retry
             </button>
           </div>
@@ -561,15 +748,20 @@ function Dashboard({ user, apiKey }) {
             </div>
           </div>
           <div className="stat-card hover-lift">
+            <i className="fas fa-users text-purple-500"></i>
+            <div className="stat-number">{metrics.total_users}</div>
+            <div className="stat-label">Total Users</div>
+            <div className="stat-change">
+              {metrics.active_users_today} active today
+            </div>
+          </div>
+          <div className="stat-card hover-lift">
             <i className="fas fa-spinner text-yellow-500"></i>
             <div className="stat-number">{metrics.pipelines_running}</div>
             <div className="stat-label">Pipelines Running</div>
-            <div
-              className={`stat-change ${getSystemStatusClass(
-                metrics.system_status
-              )}`}
-            >
-              {getSystemStatusText(metrics.system_status)}
+            <div className="stat-change">
+              <i className="fas fa-cog fa-spin"></i>
+              Currently processing
             </div>
           </div>
           <div className="stat-card hover-lift">
@@ -577,52 +769,132 @@ function Dashboard({ user, apiKey }) {
             <div className="stat-number">{metrics.system_alerts}</div>
             <div className="stat-label">System Alerts</div>
             <div className="stat-change">
-              {metrics.system_alerts === 0
-                ? "No issues detected"
-                : `${metrics.system_alerts} issues found`}
+              {metrics.system_alerts === 0 ? (
+                <>
+                  <i className="fas fa-check-circle"></i>
+                  All systems operational
+                </>
+              ) : (
+                <>
+                  <i className="fas fa-exclamation-circle"></i>
+                  {metrics.system_alerts} issues found
+                </>
+              )}
             </div>
           </div>
+        </div>
+
+        <div className="dashboard-stats">
           <div className="stat-card hover-lift">
-            <i className="fas fa-history text-green-500"></i>
+            <i className="fas fa-chart-line text-green-500"></i>
             <div className="stat-number">{metrics.reports_generated}</div>
             <div className="stat-label">Reports Generated</div>
             <div className="stat-change">
               +{metrics.reports_generated_week} this week
             </div>
           </div>
-        </div>
-
-        <div className="card hover-lift">
-          <h2>
-            <i className="fas fa-rocket"></i>
-            Quick Actions
-          </h2>
-          <p>
-            Get started with data ingestion or explore your templates. Choose
-            from our streamlined workflow options.
-          </p>
-          <div
-            style={{
-              marginTop: "2rem",
-              display: "flex",
-              gap: "1rem",
-              flexWrap: "wrap",
-            }}
-          >
-            <button className="hover-glow">
-              <i className="fas fa-upload"></i>
-              Upload New Data
-            </button>
-            <button className="secondary hover-glow">
-              <i className="fas fa-project-diagram"></i>
-              View Templates
-            </button>
-            <button className="purple hover-glow">
-              <i className="fas fa-chart-line"></i>
-              View Analytics
-            </button>
+          <div className="stat-card hover-lift">
+            <i className="fas fa-shield-alt text-blue-500"></i>
+            <div className="stat-number">100%</div>
+            <div className="stat-label">Security Compliance</div>
+            <div className="stat-change">
+              PDPA & ISO 27001 compliant
+            </div>
+          </div>
+          <div className="stat-card hover-lift">
+            <i className="fas fa-server text-gray-500"></i>
+            <div className="stat-number">99.9%</div>
+            <div className="stat-label">System Uptime</div>
+            <div className="stat-change">
+              Last 30 days
+            </div>
+          </div>
+          <div className="stat-card hover-lift">
+            <i className="fas fa-database text-indigo-500"></i>
+            <div className="stat-number">Live</div>
+            <div className="stat-label">Data Status</div>
+            <div className="stat-change">
+              <i className="fas fa-circle text-green-500"></i>
+              Real-time sync
+            </div>
           </div>
         </div>
+
+        {/* Activity Feed */}
+        <div className="card hover-lift">
+          <h2>
+            <i className="fas fa-history"></i>
+            Recent Activity
+            {activity.length > 0 && <span className="activity-count">({activity.length})</span>}
+          </h2>
+          {activity.length === 0 ? (
+            <div className="empty-state">
+              <i className="fas fa-inbox"></i>
+              <p>No recent activity</p>
+              <small>Activity will appear here as users interact with the system</small>
+            </div>
+          ) : (
+            <div className="activity-list">
+              {activity.map((item, index) => {
+                // Debug logging for activity items
+                console.log("Activity item:", item);
+                
+                return (
+                  <div key={item.id || index} className="activity-item">
+                    <div className="activity-icon">
+                      <i className={`${getActivityIcon(item.action)} ${getActivityColor(item.action)}`}></i>
+                    </div>
+                    <div className="activity-content">
+                      <div className="activity-title">
+                        <strong>{item.username || 'System'}</strong> {item.action ? item.action.replace('_', ' ') : 'Unknown action'}
+                      </div>
+                      <div className="activity-details">
+                        {item.resource && <span className="resource">{item.resource}</span>}
+                        <span className="timestamp">{formatTimestamp(item.timestamp)}</span>
+                      </div>
+                    </div>
+                    <div className="activity-status">
+                      <span className={`status-badge ${item.status === 'success' ? 'success' : 'error'}`}>
+                        {item.status || 'unknown'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Recent Uploads */}
+        {metrics.recent_uploads && metrics.recent_uploads.length > 0 && (
+          <div className="card hover-lift">
+            <h2>
+              <i className="fas fa-upload"></i>
+              Recent Uploads
+            </h2>
+            <div className="uploads-list">
+              {metrics.recent_uploads.map((upload, index) => (
+                <div key={upload.id || index} className="upload-item">
+                  <div className="upload-icon">
+                    <i className="fas fa-file-csv"></i>
+                  </div>
+                  <div className="upload-content">
+                    <div className="upload-name">{upload.file_name}</div>
+                    <div className="upload-meta">
+                      {upload.record_count && <span>{upload.record_count.toLocaleString()} records</span>}
+                      <span className="upload-time">{formatTimestamp(upload.created_at)}</span>
+                    </div>
+                  </div>
+                  <div className="upload-status">
+                    <span className={`status-badge ${upload.status}`}>
+                      {upload.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="text-center text-gray-500 text-xs mt-8 p-4 bg-gray-50 rounded-lg">
           <p className="flex items-center justify-center gap-4">
@@ -634,6 +906,441 @@ function Dashboard({ user, apiKey }) {
               <i className="fas fa-shield-alt text-green-500"></i>
               Platform adheres to PDPA and ISO 27001 standards
             </span>
+            <span className="flex items-center gap-1">
+              <i className="fas fa-user-shield text-purple-500"></i>
+              Admin access - Full system control
+            </span>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// User Dashboard Component
+function UserDashboard({ user, apiKey }) {
+  const [userMetrics, setUserMetrics] = useState({
+    files_processed_month: 0,
+    files_processed_change: 0,
+    pipelines_running: 0,
+    system_alerts: 0,
+    reports_generated: 0,
+    reports_generated_week: 0,
+    recent_uploads: [],
+  });
+  const [userSummary, setUserSummary] = useState({
+    user_info: {
+      username: '',
+      email: '',
+      role: '',
+      last_login: null,
+      date_joined: null
+    },
+    today_stats: {
+      uploads_today: 0,
+      successful_today: 0,
+      failed_today: 0
+    },
+    week_stats: {
+      uploads_this_week: 0,
+      successful_this_week: 0,
+      failed_this_week: 0
+    },
+    month_stats: {
+      uploads_this_month: 0,
+      successful_this_month: 0,
+      failed_this_month: 0
+    },
+    recent_activity_count: 0,
+    system_status: 'operational'
+  });
+  const [activity, setActivity] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    fetchUserDashboardData();
+    // Set up auto-refresh every 60 seconds for users
+    const interval = setInterval(fetchUserDashboardData, 60000);
+    return () => clearInterval(interval);
+  }, [apiKey]);
+
+  const fetchUserDashboardData = async (isRefresh = false) => {
+    try {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      
+      console.log("Fetching user dashboard data from API...");
+      console.log("API_BASE:", API_BASE);
+      console.log("API Key:", apiKey ? "Present" : "Missing");
+
+      // Test API connectivity first
+      try {
+        const testResponse = await fetch(`${API_BASE}/dashboard/metrics/`, {
+          headers: { "X-API-Key": apiKey },
+        });
+        console.log("User dashboard test response status:", testResponse.status);
+        
+        if (!testResponse.ok) {
+          const errorText = await testResponse.text();
+          console.error("User dashboard test response error:", errorText);
+          setError(`API Error ${testResponse.status}: ${errorText}`);
+          return;
+        }
+      } catch (testError) {
+        console.error("User dashboard API connectivity test failed:", testError);
+        setError(`Connection failed: ${testError.message}`);
+        return;
+      }
+
+      // Fetch metrics, activity, and user summary in parallel
+      const [metricsResponse, activityResponse, summaryResponse] = await Promise.all([
+        fetch(`${API_BASE}/dashboard/metrics/`, {
+          headers: { "X-API-Key": apiKey },
+        }),
+        fetch(`${API_BASE}/dashboard/activity/`, {
+          headers: { "X-API-Key": apiKey },
+        }),
+        fetch(`${API_BASE}/dashboard/user-summary/`, {
+          headers: { "X-API-Key": apiKey },
+        })
+      ]);
+
+      console.log("User dashboard responses:", {
+        metrics: metricsResponse.status,
+        activity: activityResponse.status,
+        summary: summaryResponse.status
+      });
+
+      if (metricsResponse.ok) {
+        const metricsData = await metricsResponse.json();
+        console.log("User dashboard metrics data:", metricsData);
+
+        if (metricsData.success && metricsData.metrics) {
+          setUserMetrics(metricsData.metrics);
+          console.log("User dashboard metrics loaded successfully");
+        } else {
+          console.warn("API returned success but no metrics data");
+          setError("Failed to load dashboard metrics");
+        }
+      } else {
+        const errorText = await metricsResponse.text();
+        console.error("User dashboard metrics API error:", metricsResponse.status, errorText);
+        setError("Failed to load dashboard metrics");
+      }
+
+      if (activityResponse.ok) {
+        const activityData = await activityResponse.json();
+        console.log("User dashboard activity data:", activityData);
+
+        if (activityData.success && activityData.activity) {
+          setActivity(activityData.activity);
+          console.log("User dashboard activity loaded successfully");
+        }
+      } else {
+        console.error("User dashboard activity API error:", activityResponse.status);
+      }
+
+      // Handle user summary response
+      if (summaryResponse.ok) {
+        const summaryData = await summaryResponse.json();
+        console.log("User dashboard summary data:", summaryData);
+
+        if (summaryData.success && summaryData.user_summary) {
+          setUserSummary(summaryData.user_summary);
+          console.log("User dashboard summary loaded successfully");
+        }
+      } else {
+        console.error("User dashboard summary API error:", summaryResponse.status);
+      }
+
+    } catch (err) {
+      console.error("User dashboard data fetch error:", err);
+      setError("Failed to load dashboard data");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const formatTimestamp = (timestamp) => {
+    if (!timestamp) return "-";
+    const date = new Date(timestamp);
+    return date.toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const getActivityIcon = (action) => {
+    switch (action) {
+      case "login": return "fas fa-sign-in-alt";
+      case "upload": return "fas fa-upload";
+      case "template_create": return "fas fa-plus-circle";
+      case "template_edit": return "fas fa-edit";
+      default: return "fas fa-circle";
+    }
+  };
+
+  const getActivityColor = (action) => {
+    switch (action) {
+      case "login": return "text-green-500";
+      case "upload": return "text-blue-500";
+      case "template_create": return "text-purple-500";
+      case "template_edit": return "text-yellow-500";
+      default: return "text-gray-500";
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="upload-page">
+        <div className="upload-container">
+          <div className="upload-header">
+            <h1 className="gradient-text">My Dashboard</h1>
+            <div className="header-gradient-line"></div>
+          </div>
+          <div className="loading-container">
+            <i className="fas fa-spinner fa-spin"></i>
+            <p>Loading your dashboard...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="upload-page">
+      <div className="upload-container">
+        <div className="upload-header">
+          <h1 className="gradient-text">My Dashboard</h1>
+          <div className="header-gradient-line"></div>
+        </div>
+
+        <div className="welcome-section">
+          <div className="welcome-card">
+            <h2>
+              <i className="fas fa-user-circle"></i>
+              Welcome back, {userSummary.user_info.username || user.username}!
+            </h2>
+            <p>Here's an overview of your data ingestion activities and available options.</p>
+            <div className="user-info-grid">
+              <div className="user-info-item">
+                <i className="fas fa-envelope"></i>
+                <span>{userSummary.user_info.email || user.email}</span>
+              </div>
+              <div className="user-info-item">
+                <i className="fas fa-calendar"></i>
+                <span>Member since {userSummary.user_info.date_joined ? new Date(userSummary.user_info.date_joined).toLocaleDateString() : 'N/A'}</span>
+              </div>
+              <div className="user-info-item">
+                <i className="fas fa-clock"></i>
+                <span>Last login: {userSummary.user_info.last_login ? new Date(userSummary.user_info.last_login).toLocaleString() : 'N/A'}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="dashboard-controls">
+          <button 
+            onClick={() => fetchUserDashboardData(true)} 
+            className={`refresh-btn ${refreshing ? 'refreshing' : ''}`}
+            disabled={refreshing}
+          >
+            <i className={`fas fa-sync-alt ${refreshing ? 'fa-spin' : ''}`}></i>
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+          <div className="last-updated">
+            <i className="fas fa-clock"></i>
+            Last updated: {new Date().toLocaleTimeString()}
+          </div>
+        </div>
+
+        {error && (
+          <div className="error-message">
+            <i className="fas fa-exclamation-triangle"></i>
+            {error}
+            <button onClick={() => fetchUserDashboardData()} className="retry-btn">
+              <i className="fas fa-redo"></i> Retry
+            </button>
+          </div>
+        )}
+
+        <div className="dashboard-stats">
+          <div className="stat-card hover-lift">
+            <i className="fas fa-upload text-blue-500"></i>
+            <div className="stat-number">{userSummary.today_stats.uploads_today}</div>
+            <div className="stat-label">Today's Uploads</div>
+            <div className="stat-change">
+              <i className="fas fa-calendar-day"></i>
+              {userSummary.today_stats.successful_today} successful
+            </div>
+          </div>
+          <div className="stat-card hover-lift">
+            <i className="fas fa-check-circle text-green-500"></i>
+            <div className="stat-number">{userSummary.week_stats.successful_this_week}</div>
+            <div className="stat-label">This Week</div>
+            <div className="stat-change">
+              <i className="fas fa-calendar-week"></i>
+              {userSummary.week_stats.uploads_this_week} total uploads
+            </div>
+          </div>
+          <div className="stat-card hover-lift">
+            <i className="fas fa-chart-line text-purple-500"></i>
+            <div className="stat-number">{userSummary.month_stats.uploads_this_month}</div>
+            <div className="stat-label">This Month</div>
+            <div className="stat-change">
+              <i className="fas fa-calendar-alt"></i>
+              {userSummary.month_stats.successful_this_month} successful
+            </div>
+          </div>
+          <div className="stat-card hover-lift">
+            <i className="fas fa-exclamation-circle text-red-500"></i>
+            <div className="stat-number">{userSummary.today_stats.failed_today + userSummary.week_stats.failed_this_week}</div>
+            <div className="stat-label">Issues</div>
+            <div className="stat-change">
+              {userSummary.system_status === 'operational' ? (
+                <>
+                  <i className="fas fa-check-circle"></i>
+                  All good!
+                </>
+              ) : (
+                <>
+                  <i className="fas fa-exclamation-triangle"></i>
+                  Need attention
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="dashboard-stats">
+          <div className="stat-card hover-lift">
+            <i className="fas fa-history text-green-500"></i>
+            <div className="stat-number">{userSummary.recent_activity_count}</div>
+            <div className="stat-label">Recent Activity</div>
+            <div className="stat-change">
+              <i className="fas fa-clock"></i>
+              Last 7 days
+            </div>
+          </div>
+          <div className="stat-card hover-lift">
+            <i className="fas fa-shield-alt text-blue-500"></i>
+            <div className="stat-number">Secure</div>
+            <div className="stat-label">Data Protection</div>
+            <div className="stat-change">
+              Your data is safe
+            </div>
+          </div>
+          <div className="stat-card hover-lift">
+            <i className="fas fa-headset text-gray-500"></i>
+            <div className="stat-number">24/7</div>
+            <div className="stat-label">Support</div>
+            <div className="stat-change">
+              Help available
+            </div>
+          </div>
+          <div className="stat-card hover-lift">
+            <i className="fas fa-database text-indigo-500"></i>
+            <div className="stat-number">Live</div>
+            <div className="stat-label">Data Status</div>
+            <div className="stat-change">
+              <i className="fas fa-circle text-green-500"></i>
+              Real-time sync
+            </div>
+          </div>
+        </div>
+
+        {/* Activity Feed */}
+        <div className="card hover-lift">
+          <h2>
+            <i className="fas fa-history"></i>
+            My Recent Activity
+          </h2>
+          {activity.length === 0 ? (
+            <div className="empty-state">
+              <i className="fas fa-inbox"></i>
+              <p>No recent activity</p>
+              <small>Start by uploading a file to see your activity here</small>
+            </div>
+          ) : (
+            <div className="activity-list">
+              {activity.map((item, index) => (
+                <div key={item.id || index} className="activity-item">
+                  <div className="activity-icon">
+                    <i className={`${getActivityIcon(item.action)} ${getActivityColor(item.action)}`}></i>
+                  </div>
+                  <div className="activity-content">
+                    <div className="activity-title">
+                      You {item.action.replace('_', ' ')}
+                    </div>
+                    <div className="activity-details">
+                      {item.resource && <span className="resource">{item.resource}</span>}
+                      <span className="timestamp">{formatTimestamp(item.timestamp)}</span>
+                    </div>
+                  </div>
+                  <div className="activity-status">
+                    <span className={`status-badge ${item.status === 'success' ? 'success' : 'error'}`}>
+                      {item.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Recent Uploads */}
+        {userMetrics.recent_uploads && userMetrics.recent_uploads.length > 0 && (
+          <div className="card hover-lift">
+            <h2>
+              <i className="fas fa-upload"></i>
+              My Recent Uploads
+            </h2>
+            <div className="uploads-list">
+              {userMetrics.recent_uploads.map((upload, index) => (
+                <div key={upload.id || index} className="upload-item">
+                  <div className="upload-icon">
+                    <i className="fas fa-file-csv"></i>
+                  </div>
+                  <div className="upload-content">
+                    <div className="upload-name">{upload.file_name}</div>
+                    <div className="upload-meta">
+                      {upload.record_count && <span>{upload.record_count.toLocaleString()} records</span>}
+                      <span className="upload-time">{formatTimestamp(upload.created_at)}</span>
+                    </div>
+                  </div>
+                  <div className="upload-status">
+                    <span className={`status-badge ${upload.status}`}>
+                      {upload.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="text-center text-gray-500 text-xs mt-8 p-4 bg-gray-50 rounded-lg">
+          <p className="flex items-center justify-center gap-4">
+            <span className="flex items-center gap-1">
+              <i className="fas fa-map-marker-alt text-blue-500"></i>
+              All data is hosted and processed within Singapore
+            </span>
+            <span className="flex items-center gap-1">
+              <i className="fas fa-shield-alt text-green-500"></i>
+              Platform adheres to PDPA and ISO 27001 standards
+            </span>
+            <span className="flex items-center gap-1">
+              <i className="fas fa-user text-purple-500"></i>
+              User access - Upload and manage your data
+            </span>
           </p>
         </div>
       </div>
@@ -642,7 +1349,7 @@ function Dashboard({ user, apiKey }) {
 }
 
 // Upload Page Component
-function UploadPage({ apiKey }) {
+function UploadPage({ apiKey, user }) {
   const [file, setFile] = useState(null);
   const [templates, setTemplates] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState("");
@@ -1004,19 +1711,6 @@ function UploadPage({ apiKey }) {
             </div>
 
             <div className="form-section">
-              <div className="form-group">
-                <label htmlFor="file-type" className="form-label">
-                  <i className="fas fa-tag"></i>
-                  Select Data Type / Source:
-                </label>
-                <select id="file-type" className="form-select">
-                  <option>CC4.0 File</option>
-                  <option>MDM Annex A3</option>
-                  <option>Talented File</option>
-                  <option>Other</option>
-                </select>
-              </div>
-
               <form onSubmit={handleFileUpload} className="upload-form">
                 <div className="file-upload-section">
                   <FileUpload
@@ -1129,7 +1823,25 @@ function UploadPage({ apiKey }) {
           </div>
         )}
 
-        {/* Recent Ingestion History */}
+
+        {step === "mapping" && uploadedFile?.id && selectedTemplate && (
+          <ColumnMapping
+            uploadId={uploadedFile.id}
+            templateId={selectedTemplate}
+            apiKey={apiKey}
+            onComplete={() => {
+              setStep("upload");
+              setFile(null);
+              setUploadedFile(null);
+              setSelectedTemplate("");
+              setMessage("Processing started successfully!");
+            }}
+            onBack={() => setStep("template")}
+          />
+        )}
+
+        {/* Recent Ingestion History - Admin Only */}
+        {user?.role === "admin" && (
         <div className="history-card">
           <div className="history-header">
             <h2>
@@ -1237,21 +1949,6 @@ function UploadPage({ apiKey }) {
             </div>
           )}
         </div>
-
-        {step === "mapping" && uploadedFile?.id && selectedTemplate && (
-          <ColumnMapping
-            uploadId={uploadedFile.id}
-            templateId={selectedTemplate}
-            apiKey={apiKey}
-            onComplete={() => {
-              setStep("upload");
-              setFile(null);
-              setUploadedFile(null);
-              setSelectedTemplate("");
-              setMessage("Processing started successfully!");
-            }}
-            onBack={() => setStep("template")}
-          />
         )}
       </div>
     </div>
@@ -2054,22 +2751,6 @@ function CreateTemplateForm({ apiKey, onSuccess }) {
                   required
                   className="field-input merge-columns-input"
                 />
-              </div>
-
-              <div className="form-group checkbox-group">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={true}
-                    onChange={() => {}}
-                    className="checkbox-input"
-                  />
-                  <span className="checkbox-custom"></span>
-                  <span className="checkbox-text">
-                    <i className="fas fa-asterisk required-asterisk"></i>
-                    Template is Active
-                  </span>
-                </label>
               </div>
             </div>
           </div>

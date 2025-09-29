@@ -28,19 +28,9 @@ SECRET_KEY = os.getenv(
 
 DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() == "true"
 
-# ALLOWED_HOSTS configuration for Railway
-if DEBUG:
-    ALLOWED_HOSTS = ["*"]
-else:
-    # For production, always include Railway domains
-    default_hosts = ["*.railway.app", "healthcheck.railway.app"]
-    
-    # Get additional hosts from environment variable
-    env_hosts = os.getenv("DJANGO_ALLOWED_HOSTS", "").split(",")
-    env_hosts = [host.strip() for host in env_hosts if host.strip()]
-    
-    # Combine default and environment hosts, removing duplicates
-    ALLOWED_HOSTS = list(set(default_hosts + env_hosts))
+ALLOWED_HOSTS = (
+    os.getenv("DJANGO_ALLOWED_HOSTS", "").split(",") if not DEBUG else ["*"]
+)
 
 # ---------------------------------------------------------------------
 # APPLICATIONS
@@ -68,9 +58,6 @@ INSTALLED_APPS = [
 # MIDDLEWARE
 # ---------------------------------------------------------------------
 MIDDLEWARE = [
-    # Custom health check middleware - MUST be first to handle Railway health checks
-    "middleware.HealthCheckMiddleware",
-    
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
@@ -114,42 +101,16 @@ WSGI_APPLICATION = "e2i_api.wsgi.application"
 # ---------------------------------------------------------------------
 # DATABASE
 # ---------------------------------------------------------------------
-# Database configuration with Railway support
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": "railway",
-        "USER": "postgres", 
-        "PASSWORD": "password",
-        "HOST": "localhost",
-        "PORT": "5432",
-    }
-}
-
-# Railway database configuration - takes precedence
-if os.getenv("DATABASE_URL"):
-    try:
-        import dj_database_url
-        DATABASES["default"] = dj_database_url.parse(os.getenv("DATABASE_URL"))
-        print("✅ Using Railway DATABASE_URL for database connection")
-    except Exception as e:
-        print(f"❌ Error parsing DATABASE_URL: {e}")
-        print("📝 Please ensure PostgreSQL addon is added to your Railway project")
-
-# Fallback for local development
-elif os.getenv("DJANGO_DB_HOST"):
-    DATABASES["default"] = {
         "ENGINE": os.getenv("DJANGO_DB_ENGINE", "django.db.backends.postgresql"),
         "NAME": os.getenv("DJANGO_DB_NAME", "e2i_db"),
         "USER": os.getenv("DJANGO_DB_USER", "e2i_user"),
         "PASSWORD": os.getenv("DJANGO_DB_PASSWORD", "e2i_pass"),
-        "HOST": os.getenv("DJANGO_DB_HOST"),
+        "HOST": os.getenv("DJANGO_DB_HOST", "orchestrator_postgres"),
         "PORT": os.getenv("DJANGO_DB_PORT", "5432"),
     }
-    print("📝 Using custom database configuration")
-else:
-    print("❌ No database configuration found!")
-    print("📝 Please add PostgreSQL addon to Railway or set DATABASE_URL environment variable")
+}
 
 # ---------------------------------------------------------------------
 # AUTHENTICATION
@@ -200,14 +161,8 @@ USE_TZ = True
 # STATIC & MEDIA
 # ---------------------------------------------------------------------
 STATIC_URL = "static/"
+STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
-
-# Static files directories (excluding STATIC_ROOT)
-STATICFILES_DIRS = []
-
-# Only add static directory if it exists
-if (BASE_DIR / "static").exists():
-    STATICFILES_DIRS.append(BASE_DIR / "static")
 
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
@@ -259,10 +214,6 @@ CORS_ALLOW_HEADERS = [
 # ---------------------------------------------------------------------
 # LOGGING
 # ---------------------------------------------------------------------
-# Ensure logs directory exists
-import os
-os.makedirs('/app/logs', exist_ok=True)
-
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -271,15 +222,11 @@ LOGGING = {
             'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
             'style': '{',
         },
-        'simple': {
-            'format': '{levelname} {message}',
-            'style': '{',
-        },
     },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
-            'formatter': 'simple',
+            'formatter': 'verbose',
         },
         'file': {
             'class': 'logging.FileHandler',
@@ -289,9 +236,9 @@ LOGGING = {
     },
     'loggers': {
         'e2i_api.requests': {
-            'handlers': ['console'],  # Only console for Railway
+            'handlers': ['file', 'console'],
             'level': 'INFO',
-            'propagate': False,
+            'propagate': False, # Prevent duplicate logs
         },
         'e2i_api': {
             'handlers': ['console'],
@@ -349,51 +296,3 @@ DETOKENIZATION = {
 # AUTHENTICATION CONFIGURATION (REMOVED - Superseded by new settings)
 # ---------------------------------------------------------------------
 # This section has been replaced by the new RATE_LIMITING and other specific settings.
-
-# ---------------------------------------------------------------------
-# PRODUCTION SECURITY SETTINGS
-# ---------------------------------------------------------------------
-
-# Fix security warnings for production deployment
-if not DEBUG:
-    # HTTP Strict Transport Security
-    SECURE_HSTS_SECONDS = 31536000  # 1 year
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
-    
-    # SSL Redirect
-    SECURE_SSL_REDIRECT = True
-    
-    # Secure cookies
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
-    
-    # Additional security headers
-    SECURE_BROWSER_XSS_FILTER = True
-    SECURE_CONTENT_TYPE_NOSNIFF = True
-    X_FRAME_OPTIONS = 'DENY'
-
-# ---------------------------------------------------------------------
-# LOGGING CONFIGURATION
-# ---------------------------------------------------------------------
-
-LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
-        },
-    },
-    'root': {
-        'handlers': ['console'],
-        'level': 'INFO',
-    },
-    'loggers': {
-        'django': {
-            'handlers': ['console'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-    },
-}

@@ -206,6 +206,18 @@ def login_view(request):
                     user_agent=request.META.get('HTTP_USER_AGENT', '')[:1000]
                 )
 
+                # Log successful login
+                from .models import AuditLog
+                AuditLog.log_action(
+                    user=user,
+                    username=user.username,
+                    action='login',
+                    resource='authentication',
+                    status='success',
+                    ip_address=request.META.get('REMOTE_ADDR'),
+                    user_agent=request.META.get('HTTP_USER_AGENT', '')[:1000]
+                )
+
                 return JsonResponse({
                     "success": True,
                     "user": {
@@ -219,8 +231,28 @@ def login_view(request):
                     "expires_at": session.expires_at.isoformat()
                 })
             else:
+                # Log failed login attempt
+                from .models import AuditLog
+                AuditLog.log_action(
+                    username=username,
+                    action='login',
+                    resource='authentication',
+                    status='failure',
+                    ip_address=request.META.get('REMOTE_ADDR'),
+                    user_agent=request.META.get('HTTP_USER_AGENT', '')[:1000]
+                )
                 return _json_error("INVALID_CREDENTIALS", "Invalid username or password", 401)
         except User.DoesNotExist:
+            # Log failed login attempt for non-existent user
+            from .models import AuditLog
+            AuditLog.log_action(
+                username=username,
+                action='login',
+                resource='authentication',
+                status='failure',
+                ip_address=request.META.get('REMOTE_ADDR'),
+                user_agent=request.META.get('HTTP_USER_AGENT', '')[:1000]
+            )
             return _json_error("INVALID_CREDENTIALS", "Invalid username or password", 401)
 
     except json.JSONDecodeError:
@@ -243,10 +275,21 @@ def logout_view(request):
     session_token = request.headers.get('X-Session-Token')
     if session_token:
         try:
-            from .models import UserSession
+            from .models import UserSession, AuditLog
             session = UserSession.objects.get(session_token=session_token)
             session.is_active = False
             session.save()
+            
+            # Log successful logout
+            AuditLog.log_action(
+                user=session.user,
+                username=session.user.username if session.user else None,
+                action='logout',
+                resource='authentication',
+                status='success',
+                ip_address=request.META.get('REMOTE_ADDR'),
+                user_agent=request.META.get('HTTP_USER_AGENT', '')[:1000]
+            )
         except UserSession.DoesNotExist:
             pass
 
@@ -268,6 +311,19 @@ def generate_api_key_view(request):
         return _json_error("AUTHENTICATION_REQUIRED", "Authentication required", 401)
 
     api_key = user.generate_api_key()
+    
+    # Log API key generation
+    from .models import AuditLog
+    AuditLog.log_action(
+        user=user,
+        username=user.username,
+        action='api_key_generate',
+        resource='user_profile',
+        status='success',
+        ip_address=request.META.get('REMOTE_ADDR'),
+        user_agent=request.META.get('HTTP_USER_AGENT', '')[:1000]
+    )
+    
     return JsonResponse({
         "success": True,
         "api_key": api_key,

@@ -269,6 +269,28 @@ def upload_view(request: HttpRequest):
         upload.error = "; ".join(summary["errors"]) if summary["errors"] else None
         upload.save(update_fields=["status", "error", "updated_at"])
 
+    # Log file upload activity
+    from e2i_api.apps.common.models import AuditLog
+    from e2i_api.apps.common.auth import get_current_user
+    current_user = get_current_user(request)
+    if current_user:
+        AuditLog.log_action(
+            user=current_user,
+            username=current_user.username,
+            action='upload',
+            resource=f'file: {upload.file_name}',
+            resource_id=str(upload.id),
+            status='success' if final_status == 'validated' else 'failure',
+            ip_address=request.META.get('REMOTE_ADDR'),
+            user_agent=request.META.get('HTTP_USER_AGENT', '')[:1000],
+            details={
+                'file_size': upload.bytes,
+                'validation_status': final_status,
+                'total_rows': summary.get('total_rows', 0),
+                'errors_count': len(summary.get('errors', []))
+            }
+        )
+
     resp = {
         "uploadId": str(upload.id),
         "fileName": upload.file_name,
